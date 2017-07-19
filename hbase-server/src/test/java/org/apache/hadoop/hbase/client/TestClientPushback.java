@@ -27,8 +27,10 @@ import java.util.concurrent.atomic.AtomicLong;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.hbase.*;
-import org.apache.hadoop.hbase.client.AsyncProcessTask;
+import org.apache.hadoop.hbase.HBaseTestingUtility;
+import org.apache.hadoop.hbase.HConstants;
+import org.apache.hadoop.hbase.ServerName;
+import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.backoff.ClientBackoffPolicy;
 import org.apache.hadoop.hbase.client.backoff.ExponentialClientBackoffPolicy;
 import org.apache.hadoop.hbase.client.backoff.ServerStatistics;
@@ -152,24 +154,25 @@ public class TestClientPushback {
             .setRpcTimeout(60 * 1000)
             .build();
     mutator.getAsyncProcess().submit(task);
+
     // Currently the ExponentialClientBackoffPolicy under these test conditions
     // produces a backoffTime of 151 milliseconds. This is long enough so the
     // wait and related checks below are reasonable. Revisit if the backoff
     // time reported by above debug logging has significantly deviated.
-    String name = server.getServerName() + "," + Bytes.toStringBinary(regionName);
-    MetricsConnection.RegionStats rsStats = conn.getConnectionMetrics().
-            serverStats.get(server).get(regionName);
+    String name = MetricsConnection.formatRegionPath(server, regionName);
+    MetricsClientSourceImpl source = (MetricsClientSourceImpl)(conn.getConnectionMetrics().source);
+
+    MetricsClientSourceImpl.RegionStats rsStats = source.regionStats.get(MetricsConnection.formatRegionPath(server, regionName));
     assertEquals(name, rsStats.name);
-    assertEquals(rsStats.heapOccupancyHist.getSnapshot().getMean(),
-        (double)regionStats.getHeapOccupancyPercent(), 0.1 );
-    assertEquals(rsStats.memstoreLoadHist.getSnapshot().getMean(),
-        (double)regionStats.getMemstoreLoadPercent(), 0.1);
+    assertEquals((double) regionStats.getHeapOccupancyPercent(),
+        rsStats.heapOccupancyHistogram.getSnapshot().getMean(), 0.1);
+    assertEquals((double) regionStats.getMemstoreLoadPercent(),
+        rsStats.memstoreLoadHistogram.getSnapshot().getMean(), 0.1);
 
-    MetricsConnection.RunnerStats runnerStats = conn.getConnectionMetrics().runnerStats;
-
-    assertEquals(runnerStats.delayRunners.getCount(), 1);
-    assertEquals(runnerStats.normalRunners.getCount(), 1);
-    assertEquals("", runnerStats.delayIntevalHist.getSnapshot().getMean(),
+    MetricsClientSourceImpl.RunnerStats runnerStats = source.runnerStats;
+    assertEquals(1, runnerStats.delayRunners.value());
+    assertEquals(1, runnerStats.normalRunners.value());
+    assertEquals("", runnerStats.delayIntervalHistogram.getSnapshot().getMean(),
       (double)backoffTime, 0.1);
 
     latch.await(backoffTime * 2, TimeUnit.MILLISECONDS);
@@ -203,5 +206,5 @@ public class TestClientPushback {
 
     assertNotNull(regionStats);
     assertTrue(regionStats.getMemstoreLoadPercent() > 0);
-    }
+  }
 }

@@ -32,7 +32,7 @@ import java.util.List;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.HBaseConfiguration;
 import org.apache.hadoop.hbase.HConstants;
-import org.apache.hadoop.hbase.client.MetricsConnection;
+import org.apache.hadoop.hbase.client.CallStats;
 import org.apache.hadoop.hbase.ipc.RpcServer.BlockingServiceAndInterface;
 import org.apache.hadoop.hbase.security.AuthMethod;
 import org.apache.hadoop.hbase.shaded.ipc.protobuf.generated.TestProtos.EmptyRequestProto;
@@ -118,7 +118,7 @@ public class TestRpcServerSlowConnectionSetup {
     int callId = 10;
     Call call = new Call(callId, TestProtobufRpcProto.getDescriptor().findMethodByName("ping"),
         EmptyRequestProto.getDefaultInstance(), null, EmptyResponseProto.getDefaultInstance(), 1000,
-        HConstants.NORMAL_QOS, null, MetricsConnection.newCallStats());
+        HConstants.NORMAL_QOS, null, CallStats.newCallStats());
     RequestHeader requestHeader = IPCUtil.buildRequestHeader(call, null);
     dos.writeInt(IPCUtil.getTotalSizeWhenWrittenDelimited(requestHeader, call.param));
     requestHeader.writeDelimitedTo(dos);

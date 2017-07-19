@@ -108,10 +108,14 @@
         <groupId>org.apache.commons</groupId>
         <artifactId>commons-math</artifactId>
       </dependency>
-        <dependency>
-            <groupId>org.apache.hbase</groupId>
-            <artifactId>hbase-metrics-api</artifactId>
-        </dependency>
+      <dependency>
+        <groupId>org.apache.hbase</groupId>
+        <artifactId>hbase-metrics-api</artifactId>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.hbase</groupId>
+        <artifactId>hbase-protocol-shaded</artifactId>
+      </dependency>
     </dependencies>
 
     <profiles>

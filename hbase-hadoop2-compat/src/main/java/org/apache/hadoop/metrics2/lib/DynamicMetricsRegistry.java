@@ -285,7 +285,7 @@ public class DynamicMetricsRegistry {
   }
 
 
-  synchronized void add(String name, MutableMetric metric) {
+  public synchronized void add(String name, MutableMetric metric) {
     addNewMetricIfAbsent(name, metric, MutableMetric.class);
   }
 

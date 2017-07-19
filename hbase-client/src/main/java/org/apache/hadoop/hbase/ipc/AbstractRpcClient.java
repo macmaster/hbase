@@ -55,6 +55,7 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.ServerName;
 import org.apache.hadoop.hbase.classification.InterfaceAudience;
+import org.apache.hadoop.hbase.client.CallStats;
 import org.apache.hadoop.hbase.client.MetricsConnection;
 import org.apache.hadoop.hbase.codec.Codec;
 import org.apache.hadoop.hbase.codec.KeyValueCodec;
@@ -398,7 +399,7 @@ public abstract class AbstractRpcClient<T extends RpcConnection> implements RpcC
   private void callMethod(final Descriptors.MethodDescriptor md, final HBaseRpcController hrc,
       final Message param, Message returnType, final User ticket, final InetSocketAddress addr,
       final RpcCallback<Message> callback) {
-    final MetricsConnection.CallStats cs = MetricsConnection.newCallStats();
+    final CallStats cs = CallStats.newCallStats();
     cs.setStartTime(EnvironmentEdgeManager.currentTime());
     final AtomicInteger counter = concurrentCounterCache.getUnchecked(addr);
     Call call = new Call(nextCallId(), md, param, hrc.cellScanner(), returnType,

@@ -28,7 +28,7 @@ import java.io.IOException;
 
 import org.apache.hadoop.hbase.CellScanner;
 import org.apache.hadoop.hbase.classification.InterfaceAudience;
-import org.apache.hadoop.hbase.client.MetricsConnection;
+import org.apache.hadoop.hbase.client.CallStats;
 import org.apache.hadoop.hbase.util.EnvironmentEdgeManager;
 import org.apache.htrace.Span;
 import org.apache.htrace.Trace;
@@ -55,14 +55,14 @@ class Call {
   final Descriptors.MethodDescriptor md;
   final int timeout; // timeout in millisecond for this call; 0 means infinite.
   final int priority;
-  final MetricsConnection.CallStats callStats;
+  final CallStats callStats;
   final RpcCallback<Call> callback;
   final Span span;
   Timeout timeoutTask;
 
   protected Call(int id, final Descriptors.MethodDescriptor md, Message param,
       final CellScanner cells, final Message responseDefaultType, int timeout, int priority,
-      RpcCallback<Call> callback, MetricsConnection.CallStats callStats) {
+      RpcCallback<Call> callback, CallStats callStats) {
     this.param = param;
     this.md = md;
     this.cells = cells;

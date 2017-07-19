@@ -17,186 +17,129 @@
  */
 package org.apache.hadoop.hbase.client;
 
-import static com.codahale.metrics.MetricRegistry.name;
-import static org.apache.hadoop.hbase.util.CollectionUtils.computeIfAbsent;
-
-import com.codahale.metrics.Counter;
-import com.codahale.metrics.Histogram;
-import com.codahale.metrics.JmxReporter;
-import com.codahale.metrics.MetricRegistry;
-import com.codahale.metrics.RatioGauge;
-import com.codahale.metrics.Timer;
-import org.apache.hadoop.hbase.shaded.com.google.common.annotations.VisibleForTesting;
-
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
 
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hbase.CompatibilityFactory;
 import org.apache.hadoop.hbase.ServerName;
 import org.apache.hadoop.hbase.classification.InterfaceAudience;
+import org.apache.hadoop.hbase.metrics.Interns;
 import org.apache.hadoop.hbase.shaded.com.google.protobuf.Descriptors.MethodDescriptor;
 import org.apache.hadoop.hbase.shaded.com.google.protobuf.Message;
-import org.apache.hadoop.hbase.shaded.protobuf.generated.ClientProtos.ClientService;
-import org.apache.hadoop.hbase.shaded.protobuf.generated.ClientProtos.MutateRequest;
-import org.apache.hadoop.hbase.shaded.protobuf.generated.ClientProtos.MutationProto.MutationType;
 import org.apache.hadoop.hbase.util.Bytes;
+import org.apache.hadoop.metrics2.MetricsRecordBuilder;
+import org.apache.hadoop.metrics2.lib.MutableMetric;
 
 /**
- * This class is for maintaining the various connection statistics and publishing them through
- * the metrics interfaces.
+ * This class is for maintaining the various connection statistics.
+ * and publishing them through the metrics interfaces.
  *
- * This class manages its own {@link MetricRegistry} and {@link JmxReporter} so as to not
- * conflict with other uses of Yammer Metrics within the client application. Instantiating
- * this class implicitly creates and "starts" instances of these classes; be sure to call
- * {@link #shutdown()} to terminate the thread pools they allocate.
+ * This class manages its own MetricsClientSource and delegates calls to update metrics as necessary.
+ * Instantiating this class implicitly creates and "starts" instances of these classes;
+ * be sure to call {@link #shutdown()} to terminate the thread pools they allocate.
  */
 @InterfaceAudience.Private
 public class MetricsConnection implements StatisticTrackable {
 
   /** Set this key to {@code true} to enable metrics collection of client requests. */
   public static final String CLIENT_SIDE_METRICS_ENABLED_KEY = "hbase.client.metrics.enable";
+  public static final String CLIENT_SIDE_POOLS_ENABLED_KEY = "hbase.client.metrics.pools.enable";
+  public static final String CLIENT_SIDE_JMX_ENABLED_KEY = "hbase.client.jmx.enable";
 
-  private static final String DRTN_BASE = "rpcCallDurationMs_";
-  private static final String REQ_BASE = "rpcCallRequestSizeBytes_";
-  private static final String RESP_BASE = "rpcCallResponseSizeBytes_";
-  private static final String MEMLOAD_BASE = "memstoreLoad_";
-  private static final String HEAP_BASE = "heapOccupancy_";
-  private static final String CACHE_BASE = "cacheDroppingExceptions_";
-  private static final String UNKNOWN_EXCEPTION = "UnknownException";
-  private static final String CLIENT_SVC = ClientService.getDescriptor().getName();
+  protected final Configuration config;
+  protected final MetricsClientSource source;
 
-  /** A container class for collecting details about the RPC call as it percolates. */
-  public static class CallStats {
-    private long requestSizeBytes = 0;
-    private long responseSizeBytes = 0;
-    private long startTime = 0;
-    private long callTimeMs = 0;
+  private final String POOL_EXECUTOR_ACTIVE_KEY = "executorPoolActiveThreads";
+  private final String POOL_EXECUTOR_ACTIVE_DESC = "number of active threads in the executor pool";
+  private final String POOL_META_ACTIVE_KEY = "metaPoolActiveThreads";
+  private final String POOL_META_ACTIVE_DESC = "number of active threads in the meta pool";
 
-    public long getRequestSizeBytes() {
-      return requestSizeBytes;
-    }
-
-    public void setRequestSizeBytes(long requestSizeBytes) {
-      this.requestSizeBytes = requestSizeBytes;
-    }
-
-    public long getResponseSizeBytes() {
-      return responseSizeBytes;
-    }
-
-    public void setResponseSizeBytes(long responseSizeBytes) {
-      this.responseSizeBytes = responseSizeBytes;
-    }
-
-    public long getStartTime() {
-      return startTime;
-    }
-
-    public void setStartTime(long startTime) {
-      this.startTime = startTime;
-    }
-
-    public long getCallTimeMs() {
-      return callTimeMs;
-    }
-
-    public void setCallTimeMs(long callTimeMs) {
-      this.callTimeMs = callTimeMs;
-    }
+  MetricsConnection(final ConnectionImplementation conn) {
+    this(conn, new Configuration());
   }
 
-  @VisibleForTesting
-  protected static final class CallTracker {
-    private final String name;
-    @VisibleForTesting final Timer callTimer;
-    @VisibleForTesting final Histogram reqHist;
-    @VisibleForTesting final Histogram respHist;
+  MetricsConnection(final ConnectionImplementation conn, Configuration config) {
+    this.source = CompatibilityFactory.getInstance(MetricsClientSource.class);
+    this.source.setJMXContext(conn.toString());
+    this.config = config;
 
-    private CallTracker(MetricRegistry registry, String name, String subName, String scope) {
-      StringBuilder sb = new StringBuilder(CLIENT_SVC).append("_").append(name);
-      if (subName != null) {
-        sb.append("(").append(subName).append(")");
-      }
-      this.name = sb.toString();
-      this.callTimer = registry.timer(name(MetricsConnection.class,
-        DRTN_BASE + this.name, scope));
-      this.reqHist = registry.histogram(name(MetricsConnection.class,
-        REQ_BASE + this.name, scope));
-      this.respHist = registry.histogram(name(MetricsConnection.class,
-        RESP_BASE + this.name, scope));
+    if (this.config.getBoolean(CLIENT_SIDE_POOLS_ENABLED_KEY, false)) {
+      this.source.addMetric(POOL_EXECUTOR_ACTIVE_KEY, new MutableMetric() {
+        @Override
+        public void snapshot(MetricsRecordBuilder builder, boolean all) {
+          ThreadPoolExecutor batchPool = (ThreadPoolExecutor) conn.getCurrentBatchPool();
+          double ratio = batchPool == null ? // active batch executor ratio
+              0.0 : ((double) (batchPool.getActiveCount()) / (double) (batchPool.getMaximumPoolSize()));
+          builder.addGauge(Interns.info(POOL_EXECUTOR_ACTIVE_KEY, POOL_EXECUTOR_ACTIVE_DESC), ratio);
+        }
+      });
+      this.source.addMetric(POOL_META_ACTIVE_KEY, new MutableMetric() {
+        @Override
+        public void snapshot(MetricsRecordBuilder builder, boolean all) {
+          ThreadPoolExecutor metaPool = (ThreadPoolExecutor) conn.getCurrentMetaLookupPool();
+          double ratio = metaPool == null ? // active meta lookup ratio
+              0.0 : ((double) (metaPool.getActiveCount()) / (double) (metaPool.getMaximumPoolSize()));
+          builder.addGauge(Interns.info(POOL_META_ACTIVE_KEY, POOL_META_ACTIVE_DESC), ratio);
+        }
+      });
     }
 
-    private CallTracker(MetricRegistry registry, String name, String scope) {
-      this(registry, name, null, scope);
-    }
-
-    public void updateRpc(CallStats stats) {
-      this.callTimer.update(stats.getCallTimeMs(), TimeUnit.MILLISECONDS);
-      this.reqHist.update(stats.getRequestSizeBytes());
-      this.respHist.update(stats.getResponseSizeBytes());
-    }
-
-    @Override
-    public String toString() {
-      return "CallTracker:" + name;
-    }
   }
 
-  protected static class RegionStats {
-    final String name;
-    final Histogram memstoreLoadHist;
-    final Histogram heapOccupancyHist;
-
-    public RegionStats(MetricRegistry registry, String name) {
-      this.name = name;
-      this.memstoreLoadHist = registry.histogram(name(MetricsConnection.class,
-          MEMLOAD_BASE + this.name));
-      this.heapOccupancyHist = registry.histogram(name(MetricsConnection.class,
-          HEAP_BASE + this.name));
-    }
-
-    public void update(RegionLoadStats regionStatistics) {
-      this.memstoreLoadHist.update(regionStatistics.getMemstoreLoad());
-      this.heapOccupancyHist.update(regionStatistics.getHeapOccupancy());
-    }
+  public void shutdown() {
+    source.shutdown();
   }
 
-  @VisibleForTesting
-  protected static class RunnerStats {
-    final Counter normalRunners;
-    final Counter delayRunners;
-    final Histogram delayIntevalHist;
-
-    public RunnerStats(MetricRegistry registry) {
-      this.normalRunners = registry.counter(
-        name(MetricsConnection.class, "normalRunnersCount"));
-      this.delayRunners = registry.counter(
-        name(MetricsConnection.class, "delayRunnersCount"));
-      this.delayIntevalHist = registry.histogram(
-        name(MetricsConnection.class, "delayIntervalHist"));
-    }
-
-    public void incrNormalRunners() {
-      this.normalRunners.inc();
-    }
-
-    public void incrDelayRunners() {
-      this.delayRunners.inc();
-    }
-
-    public void updateDelayInterval(long interval) {
-      this.delayIntevalHist.update(interval);
-    }
+  /** Increment the number of meta cache hits. */
+  public void incrMetaCacheHit() {
+    source.incrMetaCacheHit();
   }
 
-  @VisibleForTesting
-  protected ConcurrentHashMap<ServerName, ConcurrentMap<byte[], RegionStats>> serverStats
-          = new ConcurrentHashMap<>();
+  /** Increment the number of meta cache misses. */
+  public void incrMetaCacheMiss() {
+    source.incrMetaCacheMiss();
+  }
 
-  public void updateServerStats(ServerName serverName, byte[] regionName,
-                                Object r) {
+  /** Increment the number of meta cache drops for the requested RegionServer. */
+  public void incrMetaCacheNumClearServer() {
+    source.incrMetaCacheNumClearServer();
+  }
+
+  /** Increment the number of meta cache drops for the requested individual region. */
+  public void incrMetaCacheNumClearRegion() {
+    source.incrMetaCacheNumClearRegion();
+  }
+
+  /** Increment the count of normal runners. */
+  public void incrNormalRunners() {
+    source.incrNormalRunners();
+  }
+
+  /** Increment the count of delay runners. */
+  public void incrDelayRunners() {
+    source.incrDelayRunners();
+  }
+
+  /** Log a cache-dropping error or exception. */
+  public void incrCacheDroppingExceptions(Object exception) {
+    source.incrCacheDroppingExceptions(exception);
+  }
+
+  /** Update delay interval of delay runners. */
+  public void updateDelayInterval(long interval) {
+    source.updateDelayInterval(interval);
+  }
+
+  /** Report the RPC context to the metrics system. */
+  public void updateRpc(MethodDescriptor method, Message param, CallStats stats) {
+    source.updateRpc(method, param, stats);
+  }
+
+  /**
+   * Publish new stats received about region from RegionServer.
+   * Update the memstore and heap occupancy stats for a region.
+   */
+  public void updateServerStats(ServerName serverName, byte[] regionName, Object r) {
     if (!(r instanceof Result)) {
       return;
     }
@@ -210,270 +153,12 @@ public class MetricsConnection implements StatisticTrackable {
 
   @Override
   public void updateRegionStats(ServerName serverName, byte[] regionName, RegionLoadStats stats) {
-    String name = serverName.getServerName() + "," + Bytes.toStringBinary(regionName);
-    ConcurrentMap<byte[], RegionStats> rsStats = computeIfAbsent(serverStats, serverName,
-      () -> new ConcurrentSkipListMap<>(Bytes.BYTES_COMPARATOR));
-    RegionStats regionStats =
-        computeIfAbsent(rsStats, regionName, () -> new RegionStats(this.registry, name));
-    regionStats.update(stats);
+    String regionPath = formatRegionPath(serverName, regionName);
+    source.updateRegionStats(regionPath, stats.getMemstoreLoad(), stats.getHeapOccupancy());
   }
 
-  /** A lambda for dispatching to the appropriate metric factory method */
-  private static interface NewMetric<T> {
-    T newMetric(Class<?> clazz, String name, String scope);
-  }
-
-  /** Anticipated number of metric entries */
-  private static final int CAPACITY = 50;
-  /** Default load factor from {@link java.util.HashMap#DEFAULT_LOAD_FACTOR} */
-  private static final float LOAD_FACTOR = 0.75f;
-  /**
-   * Anticipated number of concurrent accessor threads, from
-   * {@link ConnectionImplementation#getBatchPool()}
-   */
-  private static final int CONCURRENCY_LEVEL = 256;
-
-  private final MetricRegistry registry;
-  private final JmxReporter reporter;
-  private final String scope;
-
-  private final NewMetric<Timer> timerFactory = new NewMetric<Timer>() {
-    @Override public Timer newMetric(Class<?> clazz, String name, String scope) {
-      return registry.timer(name(clazz, name, scope));
-    }
-  };
-
-  private final NewMetric<Histogram> histogramFactory = new NewMetric<Histogram>() {
-    @Override public Histogram newMetric(Class<?> clazz, String name, String scope) {
-      return registry.histogram(name(clazz, name, scope));
-    }
-  };
-
-  private final NewMetric<Counter> counterFactory = new NewMetric<Counter>() {
-    @Override public Counter newMetric(Class<?> clazz, String name, String scope) {
-      return registry.counter(name(clazz, name, scope));
-    }
-  };
-
-  // static metrics
-
-  @VisibleForTesting protected final Counter metaCacheHits;
-  @VisibleForTesting protected final Counter metaCacheMisses;
-  @VisibleForTesting protected final CallTracker getTracker;
-  @VisibleForTesting protected final CallTracker scanTracker;
-  @VisibleForTesting protected final CallTracker appendTracker;
-  @VisibleForTesting protected final CallTracker deleteTracker;
-  @VisibleForTesting protected final CallTracker incrementTracker;
-  @VisibleForTesting protected final CallTracker putTracker;
-  @VisibleForTesting protected final CallTracker multiTracker;
-  @VisibleForTesting protected final RunnerStats runnerStats;
-  @VisibleForTesting protected final Counter metaCacheNumClearServer;
-  @VisibleForTesting protected final Counter metaCacheNumClearRegion;
-
-  // dynamic metrics
-
-  // These maps are used to cache references to the metric instances that are managed by the
-  // registry. I don't think their use perfectly removes redundant allocations, but it's
-  // a big improvement over calling registry.newMetric each time.
-  @VisibleForTesting protected final ConcurrentMap<String, Timer> rpcTimers =
-      new ConcurrentHashMap<>(CAPACITY, LOAD_FACTOR, CONCURRENCY_LEVEL);
-  @VisibleForTesting protected final ConcurrentMap<String, Histogram> rpcHistograms =
-      new ConcurrentHashMap<>(CAPACITY * 2 /* tracking both request and response sizes */,
-          LOAD_FACTOR, CONCURRENCY_LEVEL);
-  private final ConcurrentMap<String, Counter> cacheDroppingExceptions =
-    new ConcurrentHashMap<>(CAPACITY, LOAD_FACTOR, CONCURRENCY_LEVEL);
-
-  MetricsConnection(final ConnectionImplementation conn) {
-    this.scope = conn.toString();
-    this.registry = new MetricRegistry();
-
-    this.registry.register(getExecutorPoolName(),
-        new RatioGauge() {
-          @Override
-          protected Ratio getRatio() {
-            ThreadPoolExecutor batchPool = (ThreadPoolExecutor) conn.getCurrentBatchPool();
-            if (batchPool == null) {
-              return Ratio.of(0, 0);
-            }
-            return Ratio.of(batchPool.getActiveCount(), batchPool.getMaximumPoolSize());
-          }
-        });
-    this.registry.register(getMetaPoolName(),
-        new RatioGauge() {
-          @Override
-          protected Ratio getRatio() {
-            ThreadPoolExecutor metaPool = (ThreadPoolExecutor) conn.getCurrentMetaLookupPool();
-            if (metaPool == null) {
-              return Ratio.of(0, 0);
-            }
-            return Ratio.of(metaPool.getActiveCount(), metaPool.getMaximumPoolSize());
-          }
-        });
-    this.metaCacheHits = registry.counter(name(this.getClass(), "metaCacheHits", scope));
-    this.metaCacheMisses = registry.counter(name(this.getClass(), "metaCacheMisses", scope));
-    this.metaCacheNumClearServer = registry.counter(name(this.getClass(),
-      "metaCacheNumClearServer", scope));
-    this.metaCacheNumClearRegion = registry.counter(name(this.getClass(),
-      "metaCacheNumClearRegion", scope));
-    this.getTracker = new CallTracker(this.registry, "Get", scope);
-    this.scanTracker = new CallTracker(this.registry, "Scan", scope);
-    this.appendTracker = new CallTracker(this.registry, "Mutate", "Append", scope);
-    this.deleteTracker = new CallTracker(this.registry, "Mutate", "Delete", scope);
-    this.incrementTracker = new CallTracker(this.registry, "Mutate", "Increment", scope);
-    this.putTracker = new CallTracker(this.registry, "Mutate", "Put", scope);
-    this.multiTracker = new CallTracker(this.registry, "Multi", scope);
-    this.runnerStats = new RunnerStats(this.registry);
-
-    this.reporter = JmxReporter.forRegistry(this.registry).build();
-    this.reporter.start();
-  }
-
-  @VisibleForTesting
-  final String getExecutorPoolName() {
-    return name(getClass(), "executorPoolActiveThreads", scope);
-  }
-
-  @VisibleForTesting
-  final String getMetaPoolName() {
-    return name(getClass(), "metaPoolActiveThreads", scope);
-  }
-
-  @VisibleForTesting
-  MetricRegistry getMetricRegistry() {
-    return registry;
-  }
-
-  public void shutdown() {
-    this.reporter.stop();
-  }
-
-  /** Produce an instance of {@link CallStats} for clients to attach to RPCs. */
-  public static CallStats newCallStats() {
-    // TODO: instance pool to reduce GC?
-    return new CallStats();
-  }
-
-  /** Increment the number of meta cache hits. */
-  public void incrMetaCacheHit() {
-    metaCacheHits.inc();
-  }
-
-  /** Increment the number of meta cache misses. */
-  public void incrMetaCacheMiss() {
-    metaCacheMisses.inc();
-  }
-
-  /** Increment the number of meta cache drops requested for entire RegionServer. */
-  public void incrMetaCacheNumClearServer() {
-    metaCacheNumClearServer.inc();
-  }
-
-  /** Increment the number of meta cache drops requested for individual region. */
-  public void incrMetaCacheNumClearRegion() {
-    metaCacheNumClearRegion.inc();
-  }
-
-  /** Increment the number of normal runner counts. */
-  public void incrNormalRunners() {
-    this.runnerStats.incrNormalRunners();
-  }
-
-  /** Increment the number of delay runner counts. */
-  public void incrDelayRunners() {
-    this.runnerStats.incrDelayRunners();
-  }
-
-  /** Update delay interval of delay runner. */
-  public void updateDelayInterval(long interval) {
-    this.runnerStats.updateDelayInterval(interval);
-  }
-
-  /**
-   * Get a metric for {@code key} from {@code map}, or create it with {@code factory}.
-   */
-  private <T> T getMetric(String key, ConcurrentMap<String, T> map, NewMetric<T> factory) {
-    return computeIfAbsent(map, key, () -> factory.newMetric(getClass(), key, scope));
-  }
-
-  /** Update call stats for non-critical-path methods */
-  private void updateRpcGeneric(MethodDescriptor method, CallStats stats) {
-    final String methodName = method.getService().getName() + "_" + method.getName();
-    getMetric(DRTN_BASE + methodName, rpcTimers, timerFactory)
-        .update(stats.getCallTimeMs(), TimeUnit.MILLISECONDS);
-    getMetric(REQ_BASE + methodName, rpcHistograms, histogramFactory)
-        .update(stats.getRequestSizeBytes());
-    getMetric(RESP_BASE + methodName, rpcHistograms, histogramFactory)
-        .update(stats.getResponseSizeBytes());
-  }
-
-  /** Report RPC context to metrics system. */
-  public void updateRpc(MethodDescriptor method, Message param, CallStats stats) {
-    // this implementation is tied directly to protobuf implementation details. would be better
-    // if we could dispatch based on something static, ie, request Message type.
-    if (method.getService() == ClientService.getDescriptor()) {
-      switch(method.getIndex()) {
-      case 0:
-        assert "Get".equals(method.getName());
-        getTracker.updateRpc(stats);
-        return;
-      case 1:
-        assert "Mutate".equals(method.getName());
-        final MutationType mutationType = ((MutateRequest) param).getMutation().getMutateType();
-        switch(mutationType) {
-        case APPEND:
-          appendTracker.updateRpc(stats);
-          return;
-        case DELETE:
-          deleteTracker.updateRpc(stats);
-          return;
-        case INCREMENT:
-          incrementTracker.updateRpc(stats);
-          return;
-        case PUT:
-          putTracker.updateRpc(stats);
-          return;
-        default:
-          throw new RuntimeException("Unrecognized mutation type " + mutationType);
-        }
-      case 2:
-        assert "Scan".equals(method.getName());
-        scanTracker.updateRpc(stats);
-        return;
-      case 3:
-        assert "BulkLoadHFile".equals(method.getName());
-        // use generic implementation
-        break;
-      case 4:
-        assert "PrepareBulkLoad".equals(method.getName());
-        // use generic implementation
-        break;
-      case 5:
-        assert "CleanupBulkLoad".equals(method.getName());
-        // use generic implementation
-        break;
-      case 6:
-        assert "ExecService".equals(method.getName());
-        // use generic implementation
-        break;
-      case 7:
-        assert "ExecRegionServerService".equals(method.getName());
-        // use generic implementation
-        break;
-      case 8:
-        assert "Multi".equals(method.getName());
-        multiTracker.updateRpc(stats);
-        return;
-      default:
-        throw new RuntimeException("Unrecognized ClientService RPC type " + method.getFullName());
-      }
-    }
-    // Fallback to dynamic registry lookup for DDL methods.
-    updateRpcGeneric(method, stats);
-  }
-
-  public void incrCacheDroppingExceptions(Object exception) {
-    getMetric(CACHE_BASE +
-      (exception == null? UNKNOWN_EXCEPTION : exception.getClass().getSimpleName()),
-      cacheDroppingExceptions, counterFactory).inc();
+  /** Formats a region path string. */
+  protected static String formatRegionPath(ServerName serverName, byte[] regionName) {
+    return String.format("%s.%s", serverName.getServerName(), Bytes.toStringBinary(regionName));
   }
 }

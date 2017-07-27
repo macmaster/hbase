@@ -20,28 +20,30 @@ package org.apache.hadoop.hbase.client;
 import static com.codahale.metrics.MetricRegistry.name;
 import static org.apache.hadoop.hbase.util.CollectionUtils.computeIfAbsent;
 
-import com.codahale.metrics.Counter;
-import com.codahale.metrics.Histogram;
-import com.codahale.metrics.JmxReporter;
-import com.codahale.metrics.MetricRegistry;
-import com.codahale.metrics.RatioGauge;
-import com.codahale.metrics.Timer;
-import org.apache.hadoop.hbase.shaded.com.google.common.annotations.VisibleForTesting;
-
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
+import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.ServerName;
 import org.apache.hadoop.hbase.classification.InterfaceAudience;
+import org.apache.hadoop.hbase.client.metrics.reporter.HadoopMetrics2Reporter;
 import org.apache.hadoop.hbase.shaded.com.google.protobuf.Descriptors.MethodDescriptor;
 import org.apache.hadoop.hbase.shaded.com.google.protobuf.Message;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.ClientProtos.ClientService;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.ClientProtos.MutateRequest;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.ClientProtos.MutationProto.MutationType;
 import org.apache.hadoop.hbase.util.Bytes;
+
+import com.codahale.metrics.Counter;
+import com.codahale.metrics.Histogram;
+import com.codahale.metrics.JmxReporter;
+import com.codahale.metrics.MetricRegistry;
+import com.codahale.metrics.RatioGauge;
+import com.codahale.metrics.Timer;
+import com.google.common.annotations.VisibleForTesting;
 
 /**
  * This class is for maintaining the various connection statistics and publishing them through
@@ -57,6 +59,9 @@ public class MetricsConnection implements StatisticTrackable {
 
   /** Set this key to {@code true} to enable metrics collection of client requests. */
   public static final String CLIENT_SIDE_METRICS_ENABLED_KEY = "hbase.client.metrics.enable";
+  public static final String CLIENT_SIDE_JMX_ENABLED_KEY = "hbase.client.jmx.enable";
+  public static final String CLIENT_SIDE_METRICS2_ENABLED_KEY = "hbase.client.metrics2.enable";
+  public static final String CLIENT_SIDE_METRICS2_PERIOD_KEY = "hbase.client.metrics2.period";
 
   private static final String DRTN_BASE = "rpcCallDurationMs_";
   private static final String REQ_BASE = "rpcCallRequestSizeBytes_";
@@ -234,8 +239,10 @@ public class MetricsConnection implements StatisticTrackable {
   private static final int CONCURRENCY_LEVEL = 256;
 
   private final MetricRegistry registry;
-  private final JmxReporter reporter;
   private final String scope;
+  private HadoopMetrics2Reporter metrics2Reporter;
+  private JmxReporter jmxReporter;
+  private Configuration config;
 
   private final NewMetric<Timer> timerFactory = new NewMetric<Timer>() {
     @Override public Timer newMetric(Class<?> clazz, String name, String scope) {
@@ -284,9 +291,14 @@ public class MetricsConnection implements StatisticTrackable {
     new ConcurrentHashMap<>(CAPACITY, LOAD_FACTOR, CONCURRENCY_LEVEL);
 
   MetricsConnection(final ConnectionImplementation conn) {
+	  this(conn, new Configuration());
+  }
+  
+  MetricsConnection(final ConnectionImplementation conn, Configuration conf){
     this.scope = conn.toString();
     this.registry = new MetricRegistry();
-
+    this.config = conf;
+    
     this.registry.register(getExecutorPoolName(),
         new RatioGauge() {
           @Override
@@ -323,9 +335,22 @@ public class MetricsConnection implements StatisticTrackable {
     this.putTracker = new CallTracker(this.registry, "Mutate", "Put", scope);
     this.multiTracker = new CallTracker(this.registry, "Multi", scope);
     this.runnerStats = new RunnerStats(this.registry);
+    
+    if (this.config.getBoolean(CLIENT_SIDE_JMX_ENABLED_KEY, true)) {
+      this.jmxReporter = JmxReporter.forRegistry(this.registry).build();
+      this.jmxReporter.start();
+    }
 
-    this.reporter = JmxReporter.forRegistry(this.registry).build();
-    this.reporter.start();
+    if (this.config.getBoolean(CLIENT_SIDE_METRICS2_ENABLED_KEY, true)) {
+      int metrics2Period = this.config.getInt(CLIENT_SIDE_METRICS2_PERIOD_KEY, 5);
+      this.metrics2Reporter = HadoopMetrics2Reporter.forRegistry(registry).build(conn.toString());
+      this.metrics2Reporter.start(metrics2Period, TimeUnit.SECONDS);
+    }
+        
+  }
+  
+  public HadoopMetrics2Reporter getReporter(){
+    return this.metrics2Reporter;
   }
 
   @VisibleForTesting
@@ -344,7 +369,13 @@ public class MetricsConnection implements StatisticTrackable {
   }
 
   public void shutdown() {
-    this.reporter.stop();
+    // TODO: SHUTDOWN PROPERLY
+    if (this.config.getBoolean(CLIENT_SIDE_JMX_ENABLED_KEY, true)) {
+      this.jmxReporter.stop();
+    }
+    if (this.config.getBoolean(CLIENT_SIDE_METRICS2_ENABLED_KEY, true)) {
+      this.metrics2Reporter.close();
+    }
   }
 
   /** Produce an instance of {@link CallStats} for clients to attach to RPCs. */

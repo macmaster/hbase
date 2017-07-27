@@ -265,7 +265,7 @@ class ConnectionImplementation implements ClusterConnection, Closeable {
     this.backoffPolicy = ClientBackoffPolicyFactory.create(conf);
     this.asyncProcess = new AsyncProcess(this, conf, rpcCallerFactory, false, rpcControllerFactory);
     if (conf.getBoolean(CLIENT_SIDE_METRICS_ENABLED_KEY, false)) {
-      this.metrics = new MetricsConnection(this);
+      this.metrics = new MetricsConnection(this, conf);
     } else {
       this.metrics = null;
     }

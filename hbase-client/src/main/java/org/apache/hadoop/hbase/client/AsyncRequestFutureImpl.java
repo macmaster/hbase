@@ -953,8 +953,8 @@ class AsyncRequestFutureImpl<CResult> implements AsyncRequestFuture {
       byte[] regionName = regionStats.getKey();
       ClientProtos.RegionLoadStats stat = regionStats.getValue().getStat();
       if (stat == null) {
-        LOG.error("No ClientProtos.RegionLoadStats found for server=" + server
-          + ", region=" + Bytes.toStringBinary(regionName));
+//        LOG.error("No ClientProtos.RegionLoadStats found for server=" + server
+//          + ", region=" + Bytes.toStringBinary(regionName));
         continue;
       }
       RegionLoadStats regionLoadstats = ProtobufUtil.createRegionLoadStats(stat);

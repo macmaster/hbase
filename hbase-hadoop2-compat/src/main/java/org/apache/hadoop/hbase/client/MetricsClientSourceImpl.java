@@ -19,7 +19,10 @@ package org.apache.hadoop.hbase.client;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Function;
 
 import org.apache.hadoop.hbase.classification.InterfaceAudience;
 import org.apache.hadoop.hbase.metrics.BaseSourceImpl;
@@ -30,6 +33,7 @@ import org.apache.hadoop.hbase.shaded.protobuf.generated.ClientProtos.MutateRequ
 import org.apache.hadoop.hbase.shaded.protobuf.generated.ClientProtos.MutationProto.MutationType;
 import org.apache.hadoop.metrics2.lib.DefaultMetricsSystem;
 import org.apache.hadoop.metrics2.lib.DynamicMetricsRegistry;
+import org.apache.hadoop.metrics2.lib.MutableCounter;
 import org.apache.hadoop.metrics2.lib.MutableFastCounter;
 import org.apache.hadoop.metrics2.lib.MutableHistogram;
 import org.apache.hadoop.metrics2.lib.MutableMetric;
@@ -79,8 +83,15 @@ public class MetricsClientSourceImpl extends BaseSourceImpl implements MetricsCl
   @VisibleForTesting
   protected final Map<String, RegionStats> regionStats;
   @VisibleForTesting
-  protected final Map<String, MutableFastCounter> cacheDroppingExceptions;
-
+  protected final Function<String, RegionStats> newRegionStat = 
+      path -> new RegionStats(registry, path, "region stats for " + path);
+  
+  @VisibleForTesting
+  protected final ConcurrentMap<String, MutableFastCounter> cacheDroppingExceptions;
+  @VisibleForTesting
+  protected final Function<String, MutableFastCounter> newCacheCounter = 
+      name -> registry.newCounter(name, "cache dropping exception.", 0l);
+  
   /**
    * Constructs a new MetricsClientSourceImpl.
    */
@@ -110,10 +121,8 @@ public class MetricsClientSourceImpl extends BaseSourceImpl implements MetricsCl
     this.multiTracker = new CallTracker(this.registry, "Multi", "rpc metrics for Multi-commit transaction calls");
 
     this.runnerStats = new RunnerStats(this.registry);
-
-    this.regionStats = new HashMap<String, RegionStats>();
-    this.cacheDroppingExceptions = new HashMap<String, MutableFastCounter>();
-
+    this.regionStats = new ConcurrentHashMap<>();
+    this.cacheDroppingExceptions = new ConcurrentHashMap<>();
   }
 
   @Override
@@ -234,12 +243,7 @@ public class MetricsClientSourceImpl extends BaseSourceImpl implements MetricsCl
   public void incrCacheDroppingExceptions(Object exception) {
     String exceptionName = (exception == null ? UNKNOWN_EXCEPTION : exception.getClass().getSimpleName());
     exceptionName = String.format("%s_%s", CACHE_BASE, exceptionName);
-    if (cacheDroppingExceptions.containsKey(exceptionName)) {
-      cacheDroppingExceptions.get(exceptionName).incr();
-    } else {
-      MutableFastCounter counter = registry.newCounter(exceptionName, "cache dropping exception.", 0l);
-      cacheDroppingExceptions.put(exceptionName, counter);
-    }
+    cacheDroppingExceptions.computeIfAbsent(exceptionName, newCacheCounter).incr(); 
   }
 
   @Override
@@ -315,13 +319,7 @@ public class MetricsClientSourceImpl extends BaseSourceImpl implements MetricsCl
 
   @Override
   public void updateRegionStats(String regionPath, int memstoreLoad, int heapOccupancy) {
-    if (regionStats.containsKey(regionPath)) {
-      regionStats.get(regionPath).update(memstoreLoad, heapOccupancy);
-    } else {
-      RegionStats stats = new RegionStats(registry, regionPath, "region stats for" + regionPath);
-      regionStats.put(regionPath, stats);
-      stats.update(memstoreLoad, heapOccupancy);
-    }
+    regionStats.computeIfAbsent(regionPath, newRegionStat).update(memstoreLoad, heapOccupancy);
   }
 
   @Override

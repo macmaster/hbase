@@ -56,7 +56,6 @@ public class TestMetricsConnection {
   public void setUp() {
     config = new Configuration();
     config.setBoolean(MetricsConnection.CLIENT_SIDE_POOLS_ENABLED_KEY, true);
-    config.setBoolean(MetricsConnection.CLIENT_SIDE_JMX_ENABLED_KEY, true);
 
     mockedConnection = Mockito.mock(ConnectionImplementation.class);
     Mockito.when(mockedConnection.toString()).thenReturn("mocked-connection");
@@ -114,14 +113,5 @@ public class TestMetricsConnection {
       assertEquals(count, t.reqHist.getSnapshot().getCount());
       assertEquals(count, t.respHist.getSnapshot().getCount());
     }
-
-    // RatioGauge executorMetrics = (RatioGauge)
-    // metricsConnection.getMetricRegistry().getMetrics()
-    // .get(metricsConnection.getExecutorPoolName());
-    // RatioGauge metaMetrics = (RatioGauge)
-    // metricsConnection.getMetricRegistry().getMetrics()
-    // .get(metricsConnection.getMetaPoolName());
-    // assertEquals(Ratio.of(0, 3).getValue(), executorMetrics.getValue(), 0);
-    // assertEquals(Double.NaN, metaMetrics.getValue(), 0);
   }
 }

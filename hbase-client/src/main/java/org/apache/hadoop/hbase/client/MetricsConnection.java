@@ -44,7 +44,6 @@ public class MetricsConnection implements StatisticTrackable {
   /** Set this key to {@code true} to enable metrics collection of client requests. */
   public static final String CLIENT_SIDE_METRICS_ENABLED_KEY = "hbase.client.metrics.enable";
   public static final String CLIENT_SIDE_POOLS_ENABLED_KEY = "hbase.client.metrics.pools.enable";
-  public static final String CLIENT_SIDE_JMX_ENABLED_KEY = "hbase.client.jmx.enable";
 
   protected final Configuration config;
   protected final MetricsClientSource source;

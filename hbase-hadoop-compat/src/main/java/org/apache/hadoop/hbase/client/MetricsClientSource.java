@@ -50,7 +50,7 @@ public interface MetricsClientSource extends BaseSource {
 
   /***************** Metrics Metadata *****************/
 
-  // meta cache
+  // Meta Cache
   String META_CACHE_HITS_KEY = "metaCacheHits";
   String META_CACHE_MISSES_KEY = "metaCacheMisses";
   String META_CACHE_CLEAR_REGIONS_KEY = "metaCacheNumClearRegion";
@@ -61,7 +61,7 @@ public interface MetricsClientSource extends BaseSource {
   String META_CACHE_CLEAR_REGIONS_DESC = "";
   String META_CACHE_CLEAR_SERVERS_DESC = "";
 
-  // runner stats
+  // Runner Stats
   String RUNNERS_NORMAL_COUNT_KEY = "normalRunnersCount";
   String RUNNERS_DELAY_COUNT_KEY = "delayRunnersCount";
   String RUNNERS_DELAY_HIST_KEY = "delayRunnersHist";
@@ -69,13 +69,13 @@ public interface MetricsClientSource extends BaseSource {
   String RUNNERS_DELAY_COUNT_DESC = "";
   String RUNNERS_DELAY_HIST_DESC = "";
 
-  /////// RPC metrics ///////
+  // RPC Metrics
   final String CLIENT_SERVICE = "ClientService";
   final String RPC_DURATION_BASE = "rpcCallDurationMs";
   final String RPC_REQUEST_BASE = "rpcCallRequestSizeBytes";
   final String RPC_RESPONSE_BASE = "rpcCallResponseSizeBytes";
 
-  /////// Other Bases ///////
+  // Other Bases
   final String MEMLOAD_BASE = "memStoreLoad";
   final String HEAP_BASE = "heapOccupancy";
   final String CACHE_BASE = "cacheDroppingExceptions_";

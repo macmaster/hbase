@@ -25,7 +25,7 @@ import java.util.List;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceAudience;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.hbase.master.HMaster;
@@ -801,7 +801,7 @@ public class MiniHBaseCluster extends HBaseCluster {
     ArrayList<HRegion> ret = new ArrayList<>();
     for (JVMClusterUtil.RegionServerThread rst : getRegionServerThreads()) {
       HRegionServer hrs = rst.getRegionServer();
-      for (Region region : hrs.getOnlineRegions(tableName)) {
+      for (Region region : hrs.getRegions(tableName)) {
         if (region.getTableDescriptor().getTableName().equals(tableName)) {
           ret.add((HRegion)region);
         }

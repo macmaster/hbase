@@ -42,6 +42,7 @@ import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.hbase.CompareOperator;
 import org.apache.hadoop.hbase.HBaseConfiguration;
 import org.apache.hadoop.hbase.HColumnDescriptor;
 import org.apache.hadoop.hbase.HConstants;
@@ -220,8 +221,8 @@ public class PerformanceEvaluation extends Configured implements Tool {
 
   /**
    *  This class works as the InputSplit of Performance Evaluation
-   *  MapReduce InputFormat, and the Record Value of RecordReader. 
-   *  Each map task will only read one record from a PeInputSplit, 
+   *  MapReduce InputFormat, and the Record Value of RecordReader.
+   *  Each map task will only read one record from a PeInputSplit,
    *  the record value is the PeInputSplit itself.
    */
   public static class PeInputSplit extends InputSplit implements Writable {
@@ -950,7 +951,7 @@ public class PerformanceEvaluation extends Configured implements Tool {
 
   static abstract class TableTest extends Test {
     protected Table table;
-    
+
     public TableTest(Configuration conf, TestOptions options, Status status) {
       super(conf, options, status);
     }
@@ -1235,7 +1236,7 @@ public class PerformanceEvaluation extends Configured implements Tool {
 
     protected Scan constructScan(byte[] valuePrefix) throws IOException {
       Filter filter = new SingleColumnValueFilter(
-          FAMILY_NAME, QUALIFIER_NAME, CompareFilter.CompareOp.EQUAL,
+          FAMILY_NAME, QUALIFIER_NAME, CompareOperator.EQUAL,
           new BinaryComparator(valuePrefix)
       );
       Scan scan = new Scan();

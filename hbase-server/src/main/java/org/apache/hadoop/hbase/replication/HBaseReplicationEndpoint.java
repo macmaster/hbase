@@ -26,7 +26,7 @@ import java.util.UUID;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceAudience;
 import org.apache.hadoop.hbase.Abortable;
 import org.apache.hadoop.hbase.ServerName;
 import org.apache.hadoop.hbase.zookeeper.ZKClusterId;
@@ -76,6 +76,16 @@ public abstract class HBaseReplicationEndpoint extends BaseReplicationEndpoint
         LOG.warn("Creation of ZookeeperWatcher failed for peer " + clusterKey, io);
       }
     }
+  }
+
+  @Override
+  public void start() {
+    startAsync();
+  }
+
+  @Override
+  public void stop() {
+    stopAsync();
   }
 
   @Override

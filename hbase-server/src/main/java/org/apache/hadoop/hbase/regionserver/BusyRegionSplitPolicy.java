@@ -22,7 +22,7 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.HBaseInterfaceAudience;
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceAudience;
 import org.apache.hadoop.hbase.util.EnvironmentEdgeManager;
 
 /**
@@ -105,7 +105,7 @@ public class BusyRegionSplitPolicy extends IncreasingToUpperBoundRegionSplitPoli
       return false;
     }
 
-    for (Store store: region.getStores()) {
+    for (HStore store: region.getStores()) {
       if (!store.canSplit()) {
         return false;
       }

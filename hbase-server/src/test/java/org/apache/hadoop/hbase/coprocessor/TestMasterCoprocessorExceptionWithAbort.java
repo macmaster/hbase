@@ -19,12 +19,8 @@
 
 package org.apache.hadoop.hbase.coprocessor;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
-
 import java.io.IOException;
+import java.util.Optional;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.Abortable;
@@ -32,11 +28,11 @@ import org.apache.hadoop.hbase.CoprocessorEnvironment;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.HColumnDescriptor;
 import org.apache.hadoop.hbase.HConstants;
-import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.MiniHBaseCluster;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.Admin;
+import org.apache.hadoop.hbase.client.RegionInfo;
 import org.apache.hadoop.hbase.client.TableDescriptor;
 import org.apache.hadoop.hbase.master.HMaster;
 import org.apache.hadoop.hbase.master.MasterCoprocessorHost;
@@ -49,6 +45,11 @@ import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 /**
  * Tests unhandled exceptions thrown by coprocessors running on master.
@@ -97,15 +98,20 @@ public class TestMasterCoprocessorExceptionWithAbort {
    }
   }
 
-  public static class BuggyMasterObserver implements MasterObserver {
+  public static class BuggyMasterObserver implements MasterCoprocessor, MasterObserver {
     private boolean preCreateTableCalled;
     private boolean postCreateTableCalled;
     private boolean startCalled;
     private boolean postStartMasterCalled;
 
     @Override
+    public Optional<MasterObserver> getMasterObserver() {
+      return Optional.of(this);
+    }
+
+    @Override
     public void postCreateTable(ObserverContext<MasterCoprocessorEnvironment> env,
-        TableDescriptor desc, HRegionInfo[] regions) throws IOException {
+        TableDescriptor desc, RegionInfo[] regions) throws IOException {
       // cause a NullPointerException and don't catch it: this will cause the
       // master to abort().
       Integer i;
@@ -163,8 +169,7 @@ public class TestMasterCoprocessorExceptionWithAbort {
 
     HMaster master = cluster.getMaster();
     MasterCoprocessorHost host = master.getMasterCoprocessorHost();
-    BuggyMasterObserver cp = (BuggyMasterObserver)host.findCoprocessor(
-        BuggyMasterObserver.class.getName());
+    BuggyMasterObserver cp = host.findCoprocessor(BuggyMasterObserver.class);
     assertFalse("No table created yet", cp.wasCreateTableCalled());
 
     // set a watch on the zookeeper /hbase/master node. If the master dies,

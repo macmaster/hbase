@@ -24,8 +24,8 @@ import java.util.Comparator;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.hbase.KeyValue.Type;
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
-import org.apache.hadoop.hbase.classification.InterfaceStability;
+import org.apache.yetus.audience.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceStability;
 import org.apache.hadoop.hbase.filter.ByteArrayComparable;
 import org.apache.hadoop.hbase.util.ByteBufferUtils;
 import org.apache.hadoop.hbase.util.Bytes;
@@ -570,16 +570,6 @@ public class CellComparator implements Comparator<Cell>, Serializable {
           ((ByteBufferCell) cell).getValuePosition(), cell.getValueLength());
     }
     return comparator.compareTo(cell.getValueArray(), cell.getValueOffset(), cell.getValueLength());
-  }
-
-  /**
-   * Comparator that compares row component only of a Cell
-   */
-  public static class RowComparator extends CellComparator {
-    @Override
-    public int compare(Cell a, Cell b) {
-      return compareRows(a, b);
-    }
   }
 
   /**

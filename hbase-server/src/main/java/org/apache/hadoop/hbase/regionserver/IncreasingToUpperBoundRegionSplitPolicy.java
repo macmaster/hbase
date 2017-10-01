@@ -25,7 +25,7 @@ import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.TableName;
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceAudience;
 import org.apache.hadoop.hbase.client.TableDescriptor;
 import org.apache.hadoop.hbase.client.TableDescriptorBuilder;
 import org.apache.hadoop.hbase.procedure2.util.StringUtils;
@@ -76,7 +76,7 @@ public class IncreasingToUpperBoundRegionSplitPolicy extends ConstantSizeRegionS
     // Get size to check
     long sizeToCheck = getSizeToCheck(tableRegionsCount);
 
-    for (Store store : region.getStores()) {
+    for (HStore store : region.getStores()) {
       // If any of the stores is unable to split (eg they contain reference files)
       // then don't split
       if (!store.canSplit()) {
@@ -110,7 +110,7 @@ public class IncreasingToUpperBoundRegionSplitPolicy extends ConstantSizeRegionS
     TableName tablename = region.getTableDescriptor().getTableName();
     int tableRegionsCount = 0;
     try {
-      List<Region> hri = rss.getOnlineRegions(tablename);
+      List<Region> hri = rss.getRegions(tablename);
       tableRegionsCount = hri == null || hri.isEmpty() ? 0 : hri.size();
     } catch (IOException e) {
       LOG.debug("Failed getOnlineRegions " + tablename, e);

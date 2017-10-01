@@ -36,7 +36,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 
-import org.apache.commons.collections.buffer.CircularFifoBuffer;
+import org.apache.commons.collections4.queue.CircularFifoQueue;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
@@ -46,8 +46,8 @@ import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.PathFilter;
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
-import org.apache.hadoop.hbase.classification.InterfaceStability;
+import org.apache.yetus.audience.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceStability;
 import org.apache.hadoop.hbase.procedure2.Procedure;
 import org.apache.hadoop.hbase.procedure2.store.ProcedureStoreBase;
 import org.apache.hadoop.hbase.procedure2.store.ProcedureStoreTracker;
@@ -155,7 +155,7 @@ public class WALProcedureStore extends ProcedureStoreBase {
   private int syncWaitMsec;
 
   // Variables used for UI display
-  private CircularFifoBuffer syncMetricsBuffer;
+  private CircularFifoQueue syncMetricsQueue;
 
   public static class SyncMetrics {
     private long timestamp;
@@ -229,7 +229,7 @@ public class WALProcedureStore extends ProcedureStoreBase {
     useHsync = conf.getBoolean(USE_HSYNC_CONF_KEY, DEFAULT_USE_HSYNC);
 
     // WebUI
-    syncMetricsBuffer = new CircularFifoBuffer(
+    syncMetricsQueue = new CircularFifoQueue(
       conf.getInt(STORE_WAL_SYNC_STATS_COUNT, DEFAULT_SYNC_STATS_COUNT));
 
     // Init sync thread
@@ -777,7 +777,7 @@ public class WALProcedureStore extends ProcedureStoreBase {
           syncMetrics.syncedEntries = slotIndex;
           syncMetrics.totalSyncedBytes = totalSyncedToStore;
           syncMetrics.syncedPerSec = syncedPerSec;
-          syncMetricsBuffer.add(syncMetrics);
+          syncMetricsQueue.add(syncMetrics);
 
           // sync
           inSync.set(true);
@@ -808,7 +808,7 @@ public class WALProcedureStore extends ProcedureStoreBase {
   public ArrayList<SyncMetrics> getSyncMetrics() {
     lock.lock();
     try {
-      return new ArrayList<>(syncMetricsBuffer);
+      return new ArrayList<>(syncMetricsQueue);
     } finally {
       lock.unlock();
     }

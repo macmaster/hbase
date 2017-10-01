@@ -40,9 +40,6 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import org.apache.hadoop.hbase.shaded.com.google.common.collect.Lists;
-import org.apache.hadoop.hbase.shaded.com.google.common.collect.Maps;
-
 import java.io.IOException;
 import java.io.InterruptedIOException;
 import java.security.PrivilegedExceptionAction;
@@ -66,7 +63,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
-import org.apache.commons.lang.RandomStringUtils;
+import org.apache.commons.lang3.RandomStringUtils;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
@@ -78,6 +75,7 @@ import org.apache.hadoop.hbase.ArrayBackedTag;
 import org.apache.hadoop.hbase.CategoryBasedTimeout;
 import org.apache.hadoop.hbase.Cell;
 import org.apache.hadoop.hbase.CellUtil;
+import org.apache.hadoop.hbase.CompareOperator;
 import org.apache.hadoop.hbase.CompatibilitySingletonFactory;
 import org.apache.hadoop.hbase.DroppedSnapshotException;
 import org.apache.hadoop.hbase.HBaseConfiguration;
@@ -107,6 +105,7 @@ import org.apache.hadoop.hbase.client.Get;
 import org.apache.hadoop.hbase.client.Increment;
 import org.apache.hadoop.hbase.client.Mutation;
 import org.apache.hadoop.hbase.client.Put;
+import org.apache.hadoop.hbase.client.RegionInfo;
 import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.client.RowMutations;
 import org.apache.hadoop.hbase.client.Scan;
@@ -131,23 +130,14 @@ import org.apache.hadoop.hbase.monitoring.MonitoredTask;
 import org.apache.hadoop.hbase.monitoring.TaskMonitor;
 import org.apache.hadoop.hbase.regionserver.HRegion.RegionScannerImpl;
 import org.apache.hadoop.hbase.regionserver.Region.RowLock;
-import org.apache.hadoop.hbase.regionserver.TestStore.FaultyFileSystem;
+import org.apache.hadoop.hbase.regionserver.TestHStore.FaultyFileSystem;
 import org.apache.hadoop.hbase.regionserver.handler.FinishRegionRecoveringHandler;
 import org.apache.hadoop.hbase.regionserver.wal.FSHLog;
 import org.apache.hadoop.hbase.regionserver.wal.MetricsWAL;
 import org.apache.hadoop.hbase.regionserver.wal.MetricsWALSource;
 import org.apache.hadoop.hbase.regionserver.wal.WALActionsListener;
-import org.apache.hadoop.hbase.regionserver.wal.WALEdit;
 import org.apache.hadoop.hbase.regionserver.wal.WALUtil;
 import org.apache.hadoop.hbase.security.User;
-import org.apache.hadoop.hbase.shaded.com.google.protobuf.ByteString;
-import org.apache.hadoop.hbase.shaded.protobuf.ProtobufUtil;
-import org.apache.hadoop.hbase.shaded.protobuf.generated.WALProtos.CompactionDescriptor;
-import org.apache.hadoop.hbase.shaded.protobuf.generated.WALProtos.FlushDescriptor;
-import org.apache.hadoop.hbase.shaded.protobuf.generated.WALProtos.FlushDescriptor.FlushAction;
-import org.apache.hadoop.hbase.shaded.protobuf.generated.WALProtos.FlushDescriptor.StoreFlushDescriptor;
-import org.apache.hadoop.hbase.shaded.protobuf.generated.WALProtos.RegionEventDescriptor;
-import org.apache.hadoop.hbase.shaded.protobuf.generated.WALProtos.StoreDescriptor;
 import org.apache.hadoop.hbase.test.MetricsAssertHelper;
 import org.apache.hadoop.hbase.testclassification.LargeTests;
 import org.apache.hadoop.hbase.testclassification.VerySlowRegionServerTests;
@@ -161,6 +151,7 @@ import org.apache.hadoop.hbase.util.Threads;
 import org.apache.hadoop.hbase.wal.AbstractFSWALProvider;
 import org.apache.hadoop.hbase.wal.FaultyFSLog;
 import org.apache.hadoop.hbase.wal.WAL;
+import org.apache.hadoop.hbase.wal.WALEdit;
 import org.apache.hadoop.hbase.wal.WALFactory;
 import org.apache.hadoop.hbase.wal.WALKey;
 import org.apache.hadoop.hbase.wal.WALProvider;
@@ -180,6 +171,17 @@ import org.mockito.ArgumentMatcher;
 import org.mockito.Mockito;
 import org.mockito.invocation.InvocationOnMock;
 import org.mockito.stubbing.Answer;
+
+import org.apache.hadoop.hbase.shaded.com.google.common.collect.Lists;
+import org.apache.hadoop.hbase.shaded.com.google.common.collect.Maps;
+import org.apache.hadoop.hbase.shaded.com.google.protobuf.ByteString;
+import org.apache.hadoop.hbase.shaded.protobuf.ProtobufUtil;
+import org.apache.hadoop.hbase.shaded.protobuf.generated.WALProtos.CompactionDescriptor;
+import org.apache.hadoop.hbase.shaded.protobuf.generated.WALProtos.FlushDescriptor;
+import org.apache.hadoop.hbase.shaded.protobuf.generated.WALProtos.FlushDescriptor.FlushAction;
+import org.apache.hadoop.hbase.shaded.protobuf.generated.WALProtos.FlushDescriptor.StoreFlushDescriptor;
+import org.apache.hadoop.hbase.shaded.protobuf.generated.WALProtos.RegionEventDescriptor;
+import org.apache.hadoop.hbase.shaded.protobuf.generated.WALProtos.StoreDescriptor;
 
 /**
  * Basic stand-alone testing of HRegion.  No clusters!
@@ -283,7 +285,7 @@ public class TestHRegion {
   @Test
   public void testCloseCarryingSnapshot() throws IOException {
     HRegion region = initHRegion(tableName, method, CONF, COLUMN_FAMILY_BYTES);
-    Store store = region.getStore(COLUMN_FAMILY_BYTES);
+    HStore store = region.getStore(COLUMN_FAMILY_BYTES);
     // Get some random bytes.
     byte [] value = Bytes.toBytes(method);
     // Make a random put against our cf.
@@ -332,7 +334,7 @@ public class TestHRegion {
     HRegion region = initHRegion(tableName, null, null, false, Durability.SYNC_WAL, faultyLog,
         COLUMN_FAMILY_BYTES);
 
-    Store store = region.getStore(COLUMN_FAMILY_BYTES);
+    HStore store = region.getStore(COLUMN_FAMILY_BYTES);
     // Get some random bytes.
     byte [] value = Bytes.toBytes(method);
     faultyLog.setStoreFlushCtx(store.createFlushContext(12345));
@@ -349,7 +351,7 @@ public class TestHRegion {
     } finally {
       assertTrue("The regionserver should have thrown an exception", threwIOE);
     }
-    long sz = store.getSizeToFlush().getDataSize();
+    long sz = store.getFlushableSize().getDataSize();
     assertTrue("flushable size should be zero, but it is " + sz, sz == 0);
     HBaseTestingUtility.closeRegionAndWAL(region);
   }
@@ -381,7 +383,7 @@ public class TestHRegion {
     FSHLog hLog = new FSHLog(fs, rootDir, "testMemstoreSizeWithFlushCanceling", CONF);
     HRegion region = initHRegion(tableName, null, null, false, Durability.SYNC_WAL, hLog,
         COLUMN_FAMILY_BYTES);
-    Store store = region.getStore(COLUMN_FAMILY_BYTES);
+    HStore store = region.getStore(COLUMN_FAMILY_BYTES);
     assertEquals(0, region.getMemstoreSize());
 
     // Put some value and make sure flush could be completed normally
@@ -393,7 +395,7 @@ public class TestHRegion {
     assertTrue(onePutSize > 0);
     region.flush(true);
     assertEquals("memstoreSize should be zero", 0, region.getMemstoreSize());
-    assertEquals("flushable size should be zero", 0, store.getSizeToFlush().getDataSize());
+    assertEquals("flushable size should be zero", 0, store.getFlushableSize().getDataSize());
 
     // save normalCPHost and replaced by mockedCPHost, which will cancel flush requests
     RegionCoprocessorHost normalCPHost = region.getCoprocessorHost();
@@ -405,13 +407,13 @@ public class TestHRegion {
     region.flush(true);
     assertEquals("memstoreSize should NOT be zero", onePutSize, region.getMemstoreSize());
     assertEquals("flushable size should NOT be zero", onePutSize,
-        store.getSizeToFlush().getDataSize());
+        store.getFlushableSize().getDataSize());
 
     // set normalCPHost and flush again, the snapshot will be flushed
     region.setCoprocessorHost(normalCPHost);
     region.flush(true);
     assertEquals("memstoreSize should be zero", 0, region.getMemstoreSize());
-    assertEquals("flushable size should be zero", 0, store.getSizeToFlush().getDataSize());
+    assertEquals("flushable size should be zero", 0, store.getFlushableSize().getDataSize());
     HBaseTestingUtility.closeRegionAndWAL(region);
   }
 
@@ -423,7 +425,7 @@ public class TestHRegion {
     FSHLog hLog = new FSHLog(fs, rootDir, testName, CONF);
     HRegion region = initHRegion(tableName, null, null, false, Durability.SYNC_WAL, hLog,
         COLUMN_FAMILY_BYTES);
-    Store store = region.getStore(COLUMN_FAMILY_BYTES);
+    HStore store = region.getStore(COLUMN_FAMILY_BYTES);
     assertEquals(0, region.getMemstoreSize());
 
     // Put one value
@@ -449,7 +451,7 @@ public class TestHRegion {
     long expectedSize = onePutSize * 2;
     assertEquals("memstoreSize should be incremented", expectedSize, region.getMemstoreSize());
     assertEquals("flushable size should be incremented", expectedSize,
-        store.getSizeToFlush().getDataSize());
+        store.getFlushableSize().getDataSize());
 
     region.setCoprocessorHost(null);
     HBaseTestingUtility.closeRegionAndWAL(region);
@@ -564,7 +566,7 @@ public class TestHRegion {
           p1.add(new KeyValue(row, COLUMN_FAMILY_BYTES, qual1, 1, (byte[])null));
           region.put(p1);
           // Manufacture an outstanding snapshot -- fake a failed flush by doing prepare step only.
-          Store store = region.getStore(COLUMN_FAMILY_BYTES);
+          HStore store = region.getStore(COLUMN_FAMILY_BYTES);
           StoreFlushContext storeFlushCtx = store.createFlushContext(12345);
           storeFlushCtx.prepare();
           // Now add two entries to the foreground memstore.
@@ -698,7 +700,7 @@ public class TestHRegion {
       }
       MonitoredTask status = TaskMonitor.get().createStatus(method);
       Map<byte[], Long> maxSeqIdInStores = new TreeMap<>(Bytes.BYTES_COMPARATOR);
-      for (Store store : region.getStores()) {
+      for (HStore store : region.getStores()) {
         maxSeqIdInStores.put(store.getColumnFamilyName().getBytes(), minSeqId - 1);
       }
       long seqId = region.replayRecoveredEditsIfAny(regiondir, maxSeqIdInStores, null, status);
@@ -750,7 +752,7 @@ public class TestHRegion {
       long recoverSeqId = 1030;
       MonitoredTask status = TaskMonitor.get().createStatus(method);
       Map<byte[], Long> maxSeqIdInStores = new TreeMap<>(Bytes.BYTES_COMPARATOR);
-      for (Store store : region.getStores()) {
+      for (HStore store : region.getStores()) {
         maxSeqIdInStores.put(store.getColumnFamilyName().getBytes(), recoverSeqId - 1);
       }
       long seqId = region.replayRecoveredEditsIfAny(regiondir, maxSeqIdInStores, null, status);
@@ -795,7 +797,7 @@ public class TestHRegion {
       dos.close();
 
       Map<byte[], Long> maxSeqIdInStores = new TreeMap<>(Bytes.BYTES_COMPARATOR);
-      for (Store store : region.getStores()) {
+      for (HStore store : region.getStores()) {
         maxSeqIdInStores.put(store.getColumnFamilyName().getBytes(), minSeqId);
       }
       long seqId = region.replayRecoveredEditsIfAny(regiondir, maxSeqIdInStores, null, null);
@@ -853,7 +855,7 @@ public class TestHRegion {
       long recoverSeqId = 1030;
       Map<byte[], Long> maxSeqIdInStores = new TreeMap<>(Bytes.BYTES_COMPARATOR);
       MonitoredTask status = TaskMonitor.get().createStatus(method);
-      for (Store store : region.getStores()) {
+      for (HStore store : region.getStores()) {
         maxSeqIdInStores.put(store.getColumnFamilyName().getBytes(), recoverSeqId - 1);
       }
       long seqId = region.replayRecoveredEditsIfAny(regiondir, maxSeqIdInStores, null, status);
@@ -897,7 +899,7 @@ public class TestHRegion {
       // this will create a region with 3 files
       assertEquals(3, region.getStore(family).getStorefilesCount());
       List<Path> storeFiles = new ArrayList<>(3);
-      for (StoreFile sf : region.getStore(family).getStorefiles()) {
+      for (HStoreFile sf : region.getStore(family).getStorefiles()) {
         storeFiles.add(sf.getPath());
       }
 
@@ -958,8 +960,8 @@ public class TestHRegion {
       }
 
       // now check whether we have only one store file, the compacted one
-      Collection<StoreFile> sfs = region.getStore(family).getStorefiles();
-      for (StoreFile sf : sfs) {
+      Collection<HStoreFile> sfs = region.getStore(family).getStorefiles();
+      for (HStoreFile sf : sfs) {
         LOG.info(sf.getPath());
       }
       if (!mismatchedRegionName) {
@@ -1011,7 +1013,7 @@ public class TestHRegion {
       // this will create a region with 3 files from flush
       assertEquals(3, region.getStore(family).getStorefilesCount());
       List<String> storeFiles = new ArrayList<>(3);
-      for (StoreFile sf : region.getStore(family).getStorefiles()) {
+      for (HStoreFile sf : region.getStore(family).getStorefiles()) {
         storeFiles.add(sf.getPath().getName());
       }
 
@@ -1713,7 +1715,7 @@ public class TestHRegion {
       put.addColumn(fam1, qf1, emptyVal);
 
       // checkAndPut with empty value
-      boolean res = region.checkAndMutate(row1, fam1, qf1, CompareOp.EQUAL, new BinaryComparator(
+      boolean res = region.checkAndMutate(row1, fam1, qf1, CompareOperator.EQUAL, new BinaryComparator(
           emptyVal), put, true);
       assertTrue(res);
 
@@ -1722,25 +1724,25 @@ public class TestHRegion {
       put.addColumn(fam1, qf1, val1);
 
       // checkAndPut with correct value
-      res = region.checkAndMutate(row1, fam1, qf1, CompareOp.EQUAL, new BinaryComparator(emptyVal),
+      res = region.checkAndMutate(row1, fam1, qf1, CompareOperator.EQUAL, new BinaryComparator(emptyVal),
           put, true);
       assertTrue(res);
 
       // not empty anymore
-      res = region.checkAndMutate(row1, fam1, qf1, CompareOp.EQUAL, new BinaryComparator(emptyVal),
+      res = region.checkAndMutate(row1, fam1, qf1, CompareOperator.EQUAL, new BinaryComparator(emptyVal),
           put, true);
       assertFalse(res);
 
       Delete delete = new Delete(row1);
       delete.addColumn(fam1, qf1);
-      res = region.checkAndMutate(row1, fam1, qf1, CompareOp.EQUAL, new BinaryComparator(emptyVal),
+      res = region.checkAndMutate(row1, fam1, qf1, CompareOperator.EQUAL, new BinaryComparator(emptyVal),
           delete, true);
       assertFalse(res);
 
       put = new Put(row1);
       put.addColumn(fam1, qf1, val2);
       // checkAndPut with correct value
-      res = region.checkAndMutate(row1, fam1, qf1, CompareOp.EQUAL, new BinaryComparator(val1),
+      res = region.checkAndMutate(row1, fam1, qf1, CompareOperator.EQUAL, new BinaryComparator(val1),
           put, true);
       assertTrue(res);
 
@@ -1748,12 +1750,12 @@ public class TestHRegion {
       delete = new Delete(row1);
       delete.addColumn(fam1, qf1);
       delete.addColumn(fam1, qf1);
-      res = region.checkAndMutate(row1, fam1, qf1, CompareOp.EQUAL, new BinaryComparator(val2),
+      res = region.checkAndMutate(row1, fam1, qf1, CompareOperator.EQUAL, new BinaryComparator(val2),
           delete, true);
       assertTrue(res);
 
       delete = new Delete(row1);
-      res = region.checkAndMutate(row1, fam1, qf1, CompareOp.EQUAL, new BinaryComparator(emptyVal),
+      res = region.checkAndMutate(row1, fam1, qf1, CompareOperator.EQUAL, new BinaryComparator(emptyVal),
           delete, true);
       assertTrue(res);
 
@@ -1762,7 +1764,7 @@ public class TestHRegion {
       put.addColumn(fam1, qf1, val1);
 
       res = region
-          .checkAndMutate(row1, fam1, qf1, CompareOp.EQUAL, new NullComparator(), put, true);
+          .checkAndMutate(row1, fam1, qf1, CompareOperator.EQUAL, new NullComparator(), put, true);
       assertTrue(res);
     } finally {
       HBaseTestingUtility.closeRegionAndWAL(this.region);
@@ -1787,14 +1789,14 @@ public class TestHRegion {
       region.put(put);
 
       // checkAndPut with wrong value
-      boolean res = region.checkAndMutate(row1, fam1, qf1, CompareOp.EQUAL, new BinaryComparator(
+      boolean res = region.checkAndMutate(row1, fam1, qf1, CompareOperator.EQUAL, new BinaryComparator(
           val2), put, true);
       assertEquals(false, res);
 
       // checkAndDelete with wrong value
       Delete delete = new Delete(row1);
       delete.addFamily(fam1);
-      res = region.checkAndMutate(row1, fam1, qf1, CompareOp.EQUAL, new BinaryComparator(val2),
+      res = region.checkAndMutate(row1, fam1, qf1, CompareOperator.EQUAL, new BinaryComparator(val2),
           put, true);
       assertEquals(false, res);
     } finally {
@@ -1819,14 +1821,14 @@ public class TestHRegion {
       region.put(put);
 
       // checkAndPut with correct value
-      boolean res = region.checkAndMutate(row1, fam1, qf1, CompareOp.EQUAL, new BinaryComparator(
+      boolean res = region.checkAndMutate(row1, fam1, qf1, CompareOperator.EQUAL, new BinaryComparator(
           val1), put, true);
       assertEquals(true, res);
 
       // checkAndDelete with correct value
       Delete delete = new Delete(row1);
       delete.addColumn(fam1, qf1);
-      res = region.checkAndMutate(row1, fam1, qf1, CompareOp.EQUAL, new BinaryComparator(val1),
+      res = region.checkAndMutate(row1, fam1, qf1, CompareOperator.EQUAL, new BinaryComparator(val1),
           delete, true);
       assertEquals(true, res);
     } finally {
@@ -1854,12 +1856,12 @@ public class TestHRegion {
       region.put(put);
 
       // Test CompareOp.LESS: original = val3, compare with val3, fail
-      boolean res = region.checkAndMutate(row1, fam1, qf1, CompareOp.LESS,
+      boolean res = region.checkAndMutate(row1, fam1, qf1, CompareOperator.LESS,
           new BinaryComparator(val3), put, true);
       assertEquals(false, res);
 
       // Test CompareOp.LESS: original = val3, compare with val4, fail
-      res = region.checkAndMutate(row1, fam1, qf1, CompareOp.LESS,
+      res = region.checkAndMutate(row1, fam1, qf1, CompareOperator.LESS,
           new BinaryComparator(val4), put, true);
       assertEquals(false, res);
 
@@ -1867,18 +1869,18 @@ public class TestHRegion {
       // succeed (now value = val2)
       put = new Put(row1);
       put.addColumn(fam1, qf1, val2);
-      res = region.checkAndMutate(row1, fam1, qf1, CompareOp.LESS,
+      res = region.checkAndMutate(row1, fam1, qf1, CompareOperator.LESS,
           new BinaryComparator(val2), put, true);
       assertEquals(true, res);
 
       // Test CompareOp.LESS_OR_EQUAL: original = val2, compare with val3, fail
-      res = region.checkAndMutate(row1, fam1, qf1, CompareOp.LESS_OR_EQUAL,
+      res = region.checkAndMutate(row1, fam1, qf1, CompareOperator.LESS_OR_EQUAL,
           new BinaryComparator(val3), put, true);
       assertEquals(false, res);
 
       // Test CompareOp.LESS_OR_EQUAL: original = val2, compare with val2,
       // succeed (value still = val2)
-      res = region.checkAndMutate(row1, fam1, qf1, CompareOp.LESS_OR_EQUAL,
+      res = region.checkAndMutate(row1, fam1, qf1, CompareOperator.LESS_OR_EQUAL,
           new BinaryComparator(val2), put, true);
       assertEquals(true, res);
 
@@ -1886,17 +1888,17 @@ public class TestHRegion {
       // succeed (now value = val3)
       put = new Put(row1);
       put.addColumn(fam1, qf1, val3);
-      res = region.checkAndMutate(row1, fam1, qf1, CompareOp.LESS_OR_EQUAL,
+      res = region.checkAndMutate(row1, fam1, qf1, CompareOperator.LESS_OR_EQUAL,
           new BinaryComparator(val1), put, true);
       assertEquals(true, res);
 
       // Test CompareOp.GREATER: original = val3, compare with val3, fail
-      res = region.checkAndMutate(row1, fam1, qf1, CompareOp.GREATER,
+      res = region.checkAndMutate(row1, fam1, qf1, CompareOperator.GREATER,
           new BinaryComparator(val3), put, true);
       assertEquals(false, res);
 
       // Test CompareOp.GREATER: original = val3, compare with val2, fail
-      res = region.checkAndMutate(row1, fam1, qf1, CompareOp.GREATER,
+      res = region.checkAndMutate(row1, fam1, qf1, CompareOperator.GREATER,
           new BinaryComparator(val2), put, true);
       assertEquals(false, res);
 
@@ -1904,23 +1906,23 @@ public class TestHRegion {
       // succeed (now value = val2)
       put = new Put(row1);
       put.addColumn(fam1, qf1, val2);
-      res = region.checkAndMutate(row1, fam1, qf1, CompareOp.GREATER,
+      res = region.checkAndMutate(row1, fam1, qf1, CompareOperator.GREATER,
           new BinaryComparator(val4), put, true);
       assertEquals(true, res);
 
       // Test CompareOp.GREATER_OR_EQUAL: original = val2, compare with val1, fail
-      res = region.checkAndMutate(row1, fam1, qf1, CompareOp.GREATER_OR_EQUAL,
+      res = region.checkAndMutate(row1, fam1, qf1, CompareOperator.GREATER_OR_EQUAL,
           new BinaryComparator(val1), put, true);
       assertEquals(false, res);
 
       // Test CompareOp.GREATER_OR_EQUAL: original = val2, compare with val2,
       // succeed (value still = val2)
-      res = region.checkAndMutate(row1, fam1, qf1, CompareOp.GREATER_OR_EQUAL,
+      res = region.checkAndMutate(row1, fam1, qf1, CompareOperator.GREATER_OR_EQUAL,
           new BinaryComparator(val2), put, true);
       assertEquals(true, res);
 
       // Test CompareOp.GREATER_OR_EQUAL: original = val2, compare with val3, succeed
-      res = region.checkAndMutate(row1, fam1, qf1, CompareOp.GREATER_OR_EQUAL,
+      res = region.checkAndMutate(row1, fam1, qf1, CompareOperator.GREATER_OR_EQUAL,
           new BinaryComparator(val3), put, true);
       assertEquals(true, res);
     } finally {
@@ -1955,7 +1957,7 @@ public class TestHRegion {
       put.add(kv);
 
       // checkAndPut with wrong value
-      boolean res = region.checkAndMutate(row1, fam1, qf1, CompareOp.EQUAL, new BinaryComparator(
+      boolean res = region.checkAndMutate(row1, fam1, qf1, CompareOperator.EQUAL, new BinaryComparator(
           val1), put, true);
       assertEquals(true, res);
 
@@ -1982,7 +1984,7 @@ public class TestHRegion {
       Put put = new Put(row2);
       put.addColumn(fam1, qual1, value1);
       try {
-        region.checkAndMutate(row, fam1, qual1, CompareOp.EQUAL,
+        region.checkAndMutate(row, fam1, qual1, CompareOperator.EQUAL,
             new BinaryComparator(value2), put, false);
         fail();
       } catch (org.apache.hadoop.hbase.DoNotRetryIOException expected) {
@@ -2031,7 +2033,7 @@ public class TestHRegion {
       delete.addColumn(fam1, qf1);
       delete.addColumn(fam2, qf1);
       delete.addColumn(fam1, qf3);
-      boolean res = region.checkAndMutate(row1, fam1, qf1, CompareOp.EQUAL, new BinaryComparator(
+      boolean res = region.checkAndMutate(row1, fam1, qf1, CompareOperator.EQUAL, new BinaryComparator(
           val2), delete, true);
       assertEquals(true, res);
 
@@ -2047,7 +2049,7 @@ public class TestHRegion {
       // Family delete
       delete = new Delete(row1);
       delete.addFamily(fam2);
-      res = region.checkAndMutate(row1, fam2, qf1, CompareOp.EQUAL, new BinaryComparator(emptyVal),
+      res = region.checkAndMutate(row1, fam2, qf1, CompareOperator.EQUAL, new BinaryComparator(emptyVal),
           delete, true);
       assertEquals(true, res);
 
@@ -2058,7 +2060,7 @@ public class TestHRegion {
 
       // Row delete
       delete = new Delete(row1);
-      res = region.checkAndMutate(row1, fam1, qf1, CompareOp.EQUAL, new BinaryComparator(val1),
+      res = region.checkAndMutate(row1, fam1, qf1, CompareOperator.EQUAL, new BinaryComparator(val1),
           delete, true);
       assertEquals(true, res);
       get = new Get(row1);
@@ -3712,7 +3714,7 @@ public class TestHRegion {
 
         if (i != 0 && i % compactInterval == 0) {
           region.compact(true);
-          for (Store store : region.getStores()) {
+          for (HStore store : region.getStores()) {
             store.closeAndArchiveCompactedFiles();
           }
         }
@@ -3892,7 +3894,7 @@ public class TestHRegion {
           // Compact regularly to avoid creating too many files and exceeding
           // the ulimit.
           region.compact(false);
-          for (Store store : region.getStores()) {
+          for (HStore store : region.getStores()) {
             store.closeAndArchiveCompactedFiles();
           }
         }
@@ -4052,8 +4054,8 @@ public class TestHRegion {
       }
       // before compaction
       HStore store = (HStore) region.getStore(fam1);
-      Collection<StoreFile> storeFiles = store.getStorefiles();
-      for (StoreFile storefile : storeFiles) {
+      Collection<HStoreFile> storeFiles = store.getStorefiles();
+      for (HStoreFile storefile : storeFiles) {
         StoreFileReader reader = storefile.getReader();
         reader.loadFileInfo();
         reader.loadBloomfilter();
@@ -4065,7 +4067,7 @@ public class TestHRegion {
 
       // after compaction
       storeFiles = store.getStorefiles();
-      for (StoreFile storefile : storeFiles) {
+      for (HStoreFile storefile : storeFiles) {
         StoreFileReader reader = storefile.getReader();
         reader.loadFileInfo();
         reader.loadBloomfilter();
@@ -4814,7 +4816,7 @@ public class TestHRegion {
       secondaryRegion = HRegion.openHRegion(rootDir, secondaryHri, htd, null, CONF);
 
       // move the file of the primary region to the archive, simulating a compaction
-      Collection<StoreFile> storeFiles = primaryRegion.getStore(families[0]).getStorefiles();
+      Collection<HStoreFile> storeFiles = primaryRegion.getStore(families[0]).getStorefiles();
       primaryRegion.getRegionFileSystem().removeStoreFiles(Bytes.toString(families[0]), storeFiles);
       Collection<StoreFileInfo> storeFileInfos = primaryRegion.getRegionFileSystem()
           .getStoreFiles(families[0]);
@@ -5821,7 +5823,7 @@ public class TestHRegion {
   // Helper for test testOpenRegionWrittenToWALForLogReplay
   static class HRegionWithSeqId extends HRegion {
     public HRegionWithSeqId(final Path tableDir, final WAL wal, final FileSystem fs,
-        final Configuration confParam, final HRegionInfo regionInfo,
+        final Configuration confParam, final RegionInfo regionInfo,
         final TableDescriptor htd, final RegionServerServices rsServices) {
       super(tableDir, wal, fs, confParam, regionInfo, htd, rsServices);
     }
@@ -5843,9 +5845,9 @@ public class TestHRegion {
     put.addColumn(fam1, qual1, Bytes.toBytes("c1-value"));
     region.put(put);
     region.flush(true);
-    Store store = region.getStore(fam1);
-    Collection<StoreFile> storefiles = store.getStorefiles();
-    for (StoreFile sf : storefiles) {
+    HStore store = region.getStore(fam1);
+    Collection<HStoreFile> storefiles = store.getStorefiles();
+    for (HStoreFile sf : storefiles) {
       assertFalse("Tags should not be present "
           ,sf.getReader().getHFileReader().getFileContext().isIncludesTags());
     }
@@ -6279,7 +6281,7 @@ public class TestHRegion {
     p = new Put(row);
     p.setDurability(Durability.SKIP_WAL);
     p.addColumn(fam1, qual1, qual2);
-    region.checkAndMutate(row, fam1, qual1, CompareOp.EQUAL, new BinaryComparator(qual1), p, false);
+    region.checkAndMutate(row, fam1, qual1, CompareOperator.EQUAL, new BinaryComparator(qual1), p, false);
     result = region.get(new Get(row));
     c = result.getColumnLatestCell(fam1, qual1);
     assertEquals(c.getTimestamp(), 10L);
@@ -6373,7 +6375,7 @@ public class TestHRegion {
     p.addColumn(fam1, qual1, qual2);
     RowMutations rm = new RowMutations(row);
     rm.add(p);
-    assertTrue(region.checkAndRowMutate(row, fam1, qual1, CompareOp.EQUAL,
+    assertTrue(region.checkAndRowMutate(row, fam1, qual1, CompareOperator.EQUAL,
         new BinaryComparator(qual1), rm, false));
     result = region.get(new Get(row));
     c = result.getColumnLatestCell(fam1, qual1);

@@ -22,6 +22,7 @@ package org.apache.hadoop.hbase.client;
 public class CallStats {
   private long requestSizeBytes = 0, responseSizeBytes = 0;
   private long startTime = 0, callTimeMs = 0;
+  private long concurrentCallsPerServer = 0;
 
   public long getRequestSizeBytes() {
     return requestSizeBytes;
@@ -53,6 +54,14 @@ public class CallStats {
 
   public void setCallTimeMs(long callTimeMs) {
     this.callTimeMs = callTimeMs;
+  }
+
+  public int getConcurrentCallsPerServer() {
+    return concurrentCallsPerServer;
+  }
+
+  public void setConcurrentCallsPerServer(int callsPerServer) {
+    this.concurrentCallsPerServer = callsPerServer;
   }
 
   /** Produce an instance of {@link CallStats} for clients to attach to RPCs. */

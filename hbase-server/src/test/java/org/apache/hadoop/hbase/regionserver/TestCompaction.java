@@ -21,7 +21,9 @@ package org.apache.hadoop.hbase.regionserver;
 import static org.apache.hadoop.hbase.HBaseTestingUtility.START_KEY;
 import static org.apache.hadoop.hbase.HBaseTestingUtility.START_KEY_BYTES;
 import static org.apache.hadoop.hbase.HBaseTestingUtility.fam1;
+import static org.apache.hadoop.hbase.regionserver.Store.PRIORITY_USER;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 import static org.mockito.Matchers.any;
@@ -33,8 +35,8 @@ import static org.mockito.Mockito.when;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
@@ -56,6 +58,7 @@ import org.apache.hadoop.hbase.client.Put;
 import org.apache.hadoop.hbase.client.Table;
 import org.apache.hadoop.hbase.io.hfile.HFileScanner;
 import org.apache.hadoop.hbase.regionserver.compactions.CompactionContext;
+import org.apache.hadoop.hbase.regionserver.compactions.CompactionLifeCycleTracker;
 import org.apache.hadoop.hbase.regionserver.compactions.CompactionRequest;
 import org.apache.hadoop.hbase.regionserver.compactions.DefaultCompactor;
 import org.apache.hadoop.hbase.regionserver.throttle.CompactionThroughputControllerFactory;
@@ -65,7 +68,6 @@ import org.apache.hadoop.hbase.security.User;
 import org.apache.hadoop.hbase.testclassification.MediumTests;
 import org.apache.hadoop.hbase.testclassification.RegionServerTests;
 import org.apache.hadoop.hbase.util.Bytes;
-import org.apache.hadoop.hbase.util.Pair;
 import org.apache.hadoop.hbase.util.Threads;
 import org.apache.hadoop.hbase.wal.WAL;
 import org.junit.After;
@@ -181,7 +183,7 @@ public class TestCompaction {
       spyR.compactStores();
 
       // ensure that the compaction stopped, all old files are intact,
-      Store s = r.stores.get(COLUMN_FAMILY);
+      HStore s = r.getStore(COLUMN_FAMILY);
       assertEquals(compactionThreshold, s.getStorefilesCount());
       assertTrue(s.getStorefilesSize() > 15*1000);
       // and no new store files persisted past compactStores()
@@ -209,8 +211,7 @@ public class TestCompaction {
       // Multiple versions allowed for an entry, so the delete isn't enough
       // Lower TTL and expire to ensure that all our entries have been wiped
       final int ttl = 1000;
-      for (Store hstore: this.r.stores.values()) {
-        HStore store = (HStore)hstore;
+      for (HStore store: this.r.stores.values()) {
         ScanInfo old = store.getScanInfo();
         ScanInfo si = new ScanInfo(old.getConfiguration(), old.getFamily(), old.getMinVersions(),
             old.getMaxVersions(), ttl, old.getKeepDeletedCells(), HConstants.DEFAULT_BLOCKSIZE, 0,
@@ -226,7 +227,7 @@ public class TestCompaction {
 
   private int count() throws IOException {
     int count = 0;
-    for (StoreFile f: this.r.stores.
+    for (HStoreFile f: this.r.stores.
         get(COLUMN_FAMILY_TEXT).getStorefiles()) {
       HFileScanner scanner = f.getReader().getScanner(false, false);
       if (!scanner.seekTo()) {
@@ -255,9 +256,9 @@ public class TestCompaction {
     for (int i = 0; i < nfiles; i++) {
       createStoreFile(r);
     }
-    HStore store = (HStore) r.getStore(COLUMN_FAMILY);
+    HStore store = r.getStore(COLUMN_FAMILY);
 
-    Collection<StoreFile> storeFiles = store.getStorefiles();
+    Collection<HStoreFile> storeFiles = store.getStorefiles();
     DefaultCompactor tool = (DefaultCompactor)store.storeEngine.getCompactor();
     tool.compactForTesting(storeFiles, false);
 
@@ -276,8 +277,8 @@ public class TestCompaction {
     } catch (Exception e) {
       // The complete compaction should fail and the corrupt file should remain
       // in the 'tmp' directory;
-      assert (fs.exists(origPath));
-      assert (!fs.exists(dstPath));
+      assertTrue(fs.exists(origPath));
+      assertFalse(fs.exists(dstPath));
       System.out.println("testCompactionWithCorruptResult Passed");
       return;
     }
@@ -298,15 +299,16 @@ public class TestCompaction {
     Mockito.when(mockServer.getCompactSplitThread()).thenReturn(thread);
 
     // setup a region/store with some files
-    Store store = r.getStore(COLUMN_FAMILY);
+    HStore store = r.getStore(COLUMN_FAMILY);
     createStoreFile(r);
     for (int i = 0; i < MAX_FILES_TO_COMPACT + 1; i++) {
       createStoreFile(r);
     }
 
     CountDownLatch latch = new CountDownLatch(1);
-    TrackableCompactionRequest request = new TrackableCompactionRequest(latch);
-    thread.requestCompaction(r, store, "test custom comapction", Store.PRIORITY_USER, request,null);
+    Tracker tracker = new Tracker(latch);
+    thread.requestCompaction(r, store, "test custom comapction", PRIORITY_USER, tracker,
+      null);
     // wait for the latch to complete.
     latch.await();
 
@@ -322,7 +324,7 @@ public class TestCompaction {
     Mockito.when(mockServer.getCompactSplitThread()).thenReturn(thread);
 
     // setup a region/store with some files
-    Store store = r.getStore(COLUMN_FAMILY);
+    HStore store = r.getStore(COLUMN_FAMILY);
     createStoreFile(r);
     for (int i = 0; i < HStore.DEFAULT_BLOCKING_STOREFILE_COUNT - 1; i++) {
       createStoreFile(r);
@@ -337,9 +339,9 @@ public class TestCompaction {
     long preFailedCount = metricsWrapper.getNumCompactionsFailed();
 
     CountDownLatch latch = new CountDownLatch(1);
-    TrackableCompactionRequest request = new TrackableCompactionRequest(latch);
-    thread.requestCompaction(mockRegion, store, "test custom comapction", Store.PRIORITY_USER,
-        request, null);
+    Tracker tracker = new Tracker(latch);
+    thread.requestCompaction(mockRegion, store, "test custom comapction", PRIORITY_USER,
+      tracker, null);
     // wait for the latch to complete.
     latch.await(120, TimeUnit.SECONDS);
 
@@ -370,20 +372,17 @@ public class TestCompaction {
 
     // setup a region/store with some files
     int numStores = r.getStores().size();
-    List<Pair<CompactionRequest, Store>> requests = new ArrayList<>(numStores);
     CountDownLatch latch = new CountDownLatch(numStores);
+    Tracker tracker = new Tracker(latch);
     // create some store files and setup requests for each store on which we want to do a
     // compaction
-    for (Store store : r.getStores()) {
+    for (HStore store : r.getStores()) {
       createStoreFile(r, store.getColumnFamilyName());
       createStoreFile(r, store.getColumnFamilyName());
       createStoreFile(r, store.getColumnFamilyName());
-      requests.add(new Pair<>(new TrackableCompactionRequest(latch), store));
+      thread.requestCompaction(r, store, "test mulitple custom comapctions", PRIORITY_USER,
+        tracker, null);
     }
-
-    thread.requestCompaction(r, "test mulitple custom comapctions", Store.PRIORITY_USER,
-      Collections.unmodifiableList(requests), null);
-
     // wait for the latch to complete.
     latch.await();
 
@@ -391,8 +390,8 @@ public class TestCompaction {
   }
 
   private class StoreMockMaker extends StatefulStoreMockMaker {
-    public ArrayList<StoreFile> compacting = new ArrayList<>();
-    public ArrayList<StoreFile> notCompacting = new ArrayList<>();
+    public ArrayList<HStoreFile> compacting = new ArrayList<>();
+    public ArrayList<HStoreFile> notCompacting = new ArrayList<>();
     private ArrayList<Integer> results;
 
     public StoreMockMaker(ArrayList<Integer> results) {
@@ -400,19 +399,21 @@ public class TestCompaction {
     }
 
     public class TestCompactionContext extends CompactionContext {
-      private List<StoreFile> selectedFiles;
-      public TestCompactionContext(List<StoreFile> selectedFiles) {
+
+      private List<HStoreFile> selectedFiles;
+
+      public TestCompactionContext(List<HStoreFile> selectedFiles) {
         super();
         this.selectedFiles = selectedFiles;
       }
 
       @Override
-      public List<StoreFile> preSelect(List<StoreFile> filesCompacting) {
+      public List<HStoreFile> preSelect(List<HStoreFile> filesCompacting) {
         return new ArrayList<>();
       }
 
       @Override
-      public boolean select(List<StoreFile> filesCompacting, boolean isUserCompaction,
+      public boolean select(List<HStoreFile> filesCompacting, boolean isUserCompaction,
           boolean mayUseOffPeak, boolean forceMajor) throws IOException {
         this.request = new CompactionRequest(selectedFiles);
         this.request.setPriority(getPriority());
@@ -428,7 +429,7 @@ public class TestCompaction {
     }
 
     @Override
-    public synchronized CompactionContext selectCompaction() {
+    public synchronized Optional<CompactionContext> selectCompaction() {
       CompactionContext ctx = new TestCompactionContext(new ArrayList<>(notCompacting));
       compacting.addAll(notCompacting);
       notCompacting.clear();
@@ -437,7 +438,7 @@ public class TestCompaction {
       } catch (IOException ex) {
         fail("Shouldn't happen");
       }
-      return ctx;
+      return Optional.of(ctx);
     }
 
     @Override
@@ -447,7 +448,7 @@ public class TestCompaction {
       notCompacting.addAll(ctx.selectedFiles);
     }
 
-    public synchronized void finishCompaction(List<StoreFile> sfs) {
+    public synchronized void finishCompaction(List<HStoreFile> sfs) {
       if (sfs.isEmpty()) return;
       synchronized (results) {
         results.add(sfs.size());
@@ -468,7 +469,9 @@ public class TestCompaction {
       public volatile boolean isInCompact = false;
 
       public void unblock() {
-        synchronized (this) { this.notifyAll(); }
+        synchronized (this) {
+          this.notifyAll();
+        }
       }
 
       @Override
@@ -486,12 +489,12 @@ public class TestCompaction {
       }
 
       @Override
-      public List<StoreFile> preSelect(List<StoreFile> filesCompacting) {
+      public List<HStoreFile> preSelect(List<HStoreFile> filesCompacting) {
         return new ArrayList<>();
       }
 
       @Override
-      public boolean select(List<StoreFile> f, boolean i, boolean m, boolean e)
+      public boolean select(List<HStoreFile> f, boolean i, boolean m, boolean e)
           throws IOException {
         this.request = new CompactionRequest(new ArrayList<>());
         return true;
@@ -499,14 +502,14 @@ public class TestCompaction {
     }
 
     @Override
-    public CompactionContext selectCompaction() {
+    public Optional<CompactionContext> selectCompaction() {
       this.blocked = new BlockingCompactionContext();
       try {
         this.blocked.select(null, false, false, false);
       } catch (IOException ex) {
         fail("Shouldn't happen");
       }
-      return this.blocked;
+      return Optional.of(blocked);
     }
 
     @Override
@@ -527,13 +530,13 @@ public class TestCompaction {
     }
 
     @Override
-    public Store createStoreMock(String name) throws Exception {
+    public HStore createStoreMock(String name) throws Exception {
       return createStoreMock(Integer.MIN_VALUE, name);
     }
 
-    public Store createStoreMock(int priority, String name) throws Exception {
+    public HStore createStoreMock(int priority, String name) throws Exception {
       // Override the mock to always return the specified priority.
-      Store s = super.createStoreMock(name);
+      HStore s = super.createStoreMock(name);
       when(s.getCompactPriority()).thenReturn(priority);
       return s;
     }
@@ -555,7 +558,7 @@ public class TestCompaction {
     // Set up the region mock that redirects compactions.
     HRegion r = mock(HRegion.class);
     when(
-      r.compact(any(CompactionContext.class), any(Store.class),
+      r.compact(any(CompactionContext.class), any(HStore.class),
         any(ThroughputController.class), any(User.class))).then(new Answer<Boolean>() {
       @Override
       public Boolean answer(InvocationOnMock invocation) throws Throwable {
@@ -568,7 +571,7 @@ public class TestCompaction {
     // Set up store mocks for 2 "real" stores and the one we use for blocking CST.
     ArrayList<Integer> results = new ArrayList<>();
     StoreMockMaker sm = new StoreMockMaker(results), sm2 = new StoreMockMaker(results);
-    Store store = sm.createStoreMock("store1"), store2 = sm2.createStoreMock("store2");
+    HStore store = sm.createStoreMock("store1"), store2 = sm2.createStoreMock("store2");
     BlockingStoreMockMaker blocker = new BlockingStoreMockMaker();
 
     // First, block the compaction thread so that we could muck with queue.
@@ -675,14 +678,14 @@ public class TestCompaction {
   }
 
   public static class DummyCompactor extends DefaultCompactor {
-    public DummyCompactor(Configuration conf, Store store) {
+    public DummyCompactor(Configuration conf, HStore store) {
       super(conf, store);
       this.keepSeqIdPeriod = 0;
     }
   }
 
-  private static StoreFile createFile() throws Exception {
-    StoreFile sf = mock(StoreFile.class);
+  private static HStoreFile createFile() throws Exception {
+    HStoreFile sf = mock(HStoreFile.class);
     when(sf.getPath()).thenReturn(new Path("file"));
     StoreFileReader r = mock(StoreFileReader.class);
     when(r.length()).thenReturn(10L);
@@ -691,24 +694,20 @@ public class TestCompaction {
   }
 
   /**
-   * Simple {@link CompactionRequest} on which you can wait until the requested compaction finishes.
+   * Simple {@link CompactionLifeCycleTracker} on which you can wait until the requested compaction
+   * finishes.
    */
-  public static class TrackableCompactionRequest extends CompactionRequest {
-    private CountDownLatch done;
+  public static class Tracker implements CompactionLifeCycleTracker {
 
-    /**
-     * Constructor for a custom compaction. Uses the setXXX methods to update the state of the
-     * compaction before being used.
-     */
-    public TrackableCompactionRequest(CountDownLatch finished) {
-      super();
-      this.done = finished;
+    private final CountDownLatch done;
+
+    public Tracker(CountDownLatch done) {
+      this.done = done;
     }
 
     @Override
-    public void afterExecute() {
-      super.afterExecute();
-      this.done.countDown();
+    public void afterExecute(Store store) {
+      done.countDown();
     }
   }
 }

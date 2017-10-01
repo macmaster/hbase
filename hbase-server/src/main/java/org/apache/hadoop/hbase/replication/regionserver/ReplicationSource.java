@@ -18,10 +18,6 @@
  */
 package org.apache.hadoop.hbase.replication.regionserver;
 
-import org.apache.hadoop.hbase.shaded.com.google.common.collect.Lists;
-import org.apache.hadoop.hbase.shaded.com.google.common.util.concurrent.ListenableFuture;
-import org.apache.hadoop.hbase.shaded.com.google.common.util.concurrent.Service;
-
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -36,7 +32,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
 
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
@@ -46,7 +42,7 @@ import org.apache.hadoop.hbase.HBaseConfiguration;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.Stoppable;
 import org.apache.hadoop.hbase.TableName;
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceAudience;
 import org.apache.hadoop.hbase.regionserver.RSRpcServices;
 import org.apache.hadoop.hbase.replication.ChainWALEntryFilter;
 import org.apache.hadoop.hbase.replication.ClusterMarkingEntryFilter;
@@ -64,6 +60,8 @@ import org.apache.hadoop.hbase.util.Threads;
 import org.apache.hadoop.hbase.wal.AbstractFSWALProvider;
 import org.apache.hadoop.hbase.wal.WAL.Entry;
 
+import org.apache.hadoop.hbase.shaded.com.google.common.collect.Lists;
+
 
 /**
  * Class that handles the source of a replication stream.
@@ -75,7 +73,6 @@ import org.apache.hadoop.hbase.wal.WAL.Entry;
  * A stream is considered down when we cannot contact a region server on the
  * peer cluster for more than 55 seconds by default.
  * </p>
- *
  */
 @InterfaceAudience.Private
 public class ReplicationSource extends Thread implements ReplicationSourceInterface {
@@ -125,10 +122,16 @@ public class ReplicationSource extends Thread implements ReplicationSourceInterf
   private ReplicationThrottler throttler;
   private long defaultBandwidth;
   private long currentBandwidth;
+  private WALFileLengthProvider walFileLengthProvider;
   protected final ConcurrentHashMap<String, ReplicationSourceShipper> workerThreads =
       new ConcurrentHashMap<>();
 
   private AtomicLong totalBufferUsed;
+
+  public static final String WAIT_ON_ENDPOINT_SECONDS =
+    "hbase.replication.wait.on.endpoint.seconds";
+  public static final int DEFAULT_WAIT_ON_ENDPOINT_SECONDS = 30;
+  private int waitOnEndpointSeconds = -1;
 
   /**
    * Instantiation method used by region servers
@@ -144,14 +147,14 @@ public class ReplicationSource extends Thread implements ReplicationSourceInterf
    * @throws IOException
    */
   @Override
-  public void init(final Configuration conf, final FileSystem fs,
-      final ReplicationSourceManager manager, final ReplicationQueues replicationQueues,
-      final ReplicationPeers replicationPeers, final Stoppable stopper,
-      final String peerClusterZnode, final UUID clusterId, ReplicationEndpoint replicationEndpoint,
-      final MetricsSource metrics)
-          throws IOException {
+  public void init(Configuration conf, FileSystem fs, ReplicationSourceManager manager,
+      ReplicationQueues replicationQueues, ReplicationPeers replicationPeers, Stoppable stopper,
+      String peerClusterZnode, UUID clusterId, ReplicationEndpoint replicationEndpoint,
+      WALFileLengthProvider walFileLengthProvider, MetricsSource metrics) throws IOException {
     this.stopper = stopper;
     this.conf = HBaseConfiguration.create(conf);
+    this.waitOnEndpointSeconds =
+      this.conf.getInt(WAIT_ON_ENDPOINT_SECONDS, DEFAULT_WAIT_ON_ENDPOINT_SECONDS);
     decorateConf();
     this.sleepForRetries =
         this.conf.getLong("replication.source.sleepforretries", 1000);    // 1 second
@@ -176,6 +179,7 @@ public class ReplicationSource extends Thread implements ReplicationSourceInterf
     currentBandwidth = getCurrentBandwidth();
     this.throttler = new ReplicationThrottler((double) currentBandwidth / 10.0);
     this.totalBufferUsed = manager.getTotalBufferUsed();
+    this.walFileLengthProvider = walFileLengthProvider;
     LOG.info("peerClusterZnode=" + peerClusterZnode + ", ReplicationSource : " + peerId
         + ", currentBandwidth=" + this.currentBandwidth);
   }
@@ -245,17 +249,11 @@ public class ReplicationSource extends Thread implements ReplicationSourceInterf
     this.sourceRunning = true;
     try {
       // start the endpoint, connect to the cluster
-      Service service = replicationEndpoint.startAsync();
-      final int waitTime = 10;
-      service.awaitRunning(waitTime, TimeUnit.SECONDS);
-      if (!service.isRunning()) {
-        LOG.warn("ReplicationEndpoint was not started after waiting " + waitTime +
-          " + seconds. Exiting");
-        uninitialize();
-        return;
-      }
+      this.replicationEndpoint.start();
+      this.replicationEndpoint.awaitRunning(this.waitOnEndpointSeconds, TimeUnit.SECONDS);
     } catch (Exception ex) {
       LOG.warn("Error starting ReplicationEndpoint, exiting", ex);
+      uninitialize();
       throw new RuntimeException(ex);
     }
 
@@ -383,14 +381,12 @@ public class ReplicationSource extends Thread implements ReplicationSourceInterf
   private void uninitialize() {
     LOG.debug("Source exiting " + this.peerId);
     metrics.clear();
-    if (replicationEndpoint.state() == Service.State.STARTING
-        || replicationEndpoint.state() == Service.State.RUNNING) {
-      replicationEndpoint.stopAsync();
-      final int waitTime = 10;
+    if (this.replicationEndpoint.isRunning() || this.replicationEndpoint.isStarting()) {
+      this.replicationEndpoint.stop();
       try {
-        replicationEndpoint.awaitTerminated(waitTime, TimeUnit.SECONDS);
+        this.replicationEndpoint.awaitTerminated(this.waitOnEndpointSeconds, TimeUnit.SECONDS);
       } catch (TimeoutException e) {
-        LOG.warn("Failed termination after " + waitTime + " seconds.");
+        LOG.warn("Failed termination after " + this.waitOnEndpointSeconds + " seconds.");
       }
     }
   }
@@ -463,18 +459,17 @@ public class ReplicationSource extends Thread implements ReplicationSourceInterf
       worker.entryReader.interrupt();
       worker.interrupt();
     }
-    Service service = null;
     if (this.replicationEndpoint != null) {
-      service = this.replicationEndpoint.stopAsync();
+      this.replicationEndpoint.stop();
     }
     if (join) {
       for (ReplicationSourceShipper worker : workers) {
         Threads.shutdown(worker, this.sleepForRetries);
         LOG.info("ReplicationSourceWorker " + worker.getName() + " terminated");
       }
-      if (service != null) {
+      if (this.replicationEndpoint != null) {
         try {
-          service.awaitTerminated(sleepForRetries * maxRetriesMultiplier, TimeUnit.MILLISECONDS);
+          this.replicationEndpoint.awaitTerminated(sleepForRetries * maxRetriesMultiplier, TimeUnit.MILLISECONDS);
         } catch (TimeoutException te) {
           LOG.warn("Got exception while waiting for endpoint to shutdown for replication source :"
               + this.peerClusterZnode,
@@ -563,5 +558,10 @@ public class ReplicationSource extends Thread implements ReplicationSourceInterf
     }
     totalReplicatedEdits.addAndGet(entries.size());
     totalBufferUsed.addAndGet(-batchSize);
+  }
+
+  @Override
+  public WALFileLengthProvider getWALFileLengthProvider() {
+    return walFileLengthProvider;
   }
 }

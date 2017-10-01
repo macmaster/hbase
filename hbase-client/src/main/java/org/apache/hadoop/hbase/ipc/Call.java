@@ -27,11 +27,12 @@ import org.apache.hadoop.hbase.shaded.protobuf.ProtobufUtil;
 import java.io.IOException;
 
 import org.apache.hadoop.hbase.CellScanner;
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
-import org.apache.hadoop.hbase.client.CallStats;
+import org.apache.hadoop.hbase.client.MetricsConnection;
 import org.apache.hadoop.hbase.util.EnvironmentEdgeManager;
 import org.apache.htrace.Span;
 import org.apache.htrace.Trace;
+
+import org.apache.yetus.audience.InterfaceAudience;
 
 /** A call waiting for a value. */
 @InterfaceAudience.Private

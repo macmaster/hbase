@@ -33,20 +33,22 @@ import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
-import org.apache.hadoop.hbase.HColumnDescriptor;
-import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.HRegionLocation;
-import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.MetaTableAccessor;
 import org.apache.hadoop.hbase.MiniHBaseCluster;
 import org.apache.hadoop.hbase.RegionLocations;
 import org.apache.hadoop.hbase.ServerName;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.BufferedMutator;
+import org.apache.hadoop.hbase.client.ColumnFamilyDescriptor;
+import org.apache.hadoop.hbase.client.ColumnFamilyDescriptorBuilder;
 import org.apache.hadoop.hbase.client.Connection;
 import org.apache.hadoop.hbase.client.Durability;
 import org.apache.hadoop.hbase.client.Put;
+import org.apache.hadoop.hbase.client.RegionInfo;
 import org.apache.hadoop.hbase.client.Result;
+import org.apache.hadoop.hbase.client.TableDescriptor;
+import org.apache.hadoop.hbase.client.TableDescriptorBuilder;
 import org.apache.hadoop.hbase.client.TableState;
 import org.apache.hadoop.hbase.master.HMaster;
 import org.apache.hadoop.hbase.master.MasterMetaBootstrap;
@@ -60,7 +62,9 @@ import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.FSUtils;
 import org.apache.hadoop.hbase.util.MD5Hash;
 import org.apache.hadoop.hbase.util.ModifyRegionUtils;
+import org.apache.yetus.audience.InterfaceAudience;
 
+@InterfaceAudience.Private
 public class MasterProcedureTestingUtility {
   private static final Log LOG = LogFactory.getLog(MasterProcedureTestingUtility.class);
 
@@ -136,18 +140,18 @@ public class MasterProcedureTestingUtility {
   // ==========================================================================
   //  Table Helpers
   // ==========================================================================
-  public static HTableDescriptor createHTD(final TableName tableName, final String... family) {
-    HTableDescriptor htd = new HTableDescriptor(tableName);
+  public static TableDescriptor createHTD(final TableName tableName, final String... family) {
+    TableDescriptorBuilder builder = TableDescriptorBuilder.newBuilder(tableName);
     for (int i = 0; i < family.length; ++i) {
-      htd.addFamily(new HColumnDescriptor(family[i]));
+      builder.addColumnFamily(ColumnFamilyDescriptorBuilder.of(family[i]));
     }
-    return htd;
+    return builder.build();
   }
 
-  public static HRegionInfo[] createTable(final ProcedureExecutor<MasterProcedureEnv> procExec,
+  public static RegionInfo[] createTable(final ProcedureExecutor<MasterProcedureEnv> procExec,
       final TableName tableName, final byte[][] splitKeys, String... family) throws IOException {
-    HTableDescriptor htd = createHTD(tableName, family);
-    HRegionInfo[] regions = ModifyRegionUtils.createHRegionInfos(htd, splitKeys);
+    TableDescriptor htd = createHTD(tableName, family);
+    RegionInfo[] regions = ModifyRegionUtils.createRegionInfos(htd, splitKeys);
     long procId = ProcedureTestingUtility.submitAndWait(procExec,
       new CreateTableProcedure(procExec.getEnvironment(), htd, regions));
     ProcedureTestingUtility.assertProcNotFailed(procExec.getResult(procId));
@@ -155,12 +159,12 @@ public class MasterProcedureTestingUtility {
   }
 
   public static void validateTableCreation(final HMaster master, final TableName tableName,
-      final HRegionInfo[] regions, String... family) throws IOException {
+      final RegionInfo[] regions, String... family) throws IOException {
     validateTableCreation(master, tableName, regions, true, family);
   }
 
   public static void validateTableCreation(final HMaster master, final TableName tableName,
-      final HRegionInfo[] regions, boolean hasFamilyDirs, String... family) throws IOException {
+      final RegionInfo[] regions, boolean hasFamilyDirs, String... family) throws IOException {
     // check filesystem
     final FileSystem fs = master.getMasterFileSystem().getFileSystem();
     final Path tableDir = FSUtils.getTableDir(master.getMasterFileSystem().getRootDir(), tableName);
@@ -194,12 +198,12 @@ public class MasterProcedureTestingUtility {
     assertEquals(regions.length, countMetaRegions(master, tableName));
 
     // check htd
-    HTableDescriptor htd = master.getTableDescriptors().get(tableName);
+    TableDescriptor htd = master.getTableDescriptors().get(tableName);
     assertTrue("table descriptor not found", htd != null);
     for (int i = 0; i < family.length; ++i) {
-      assertTrue("family not found " + family[i], htd.getFamily(Bytes.toBytes(family[i])) != null);
+      assertTrue("family not found " + family[i], htd.getColumnFamily(Bytes.toBytes(family[i])) != null);
     }
-    assertEquals(family.length, htd.getFamilies().size());
+    assertEquals(family.length, htd.getColumnFamilyCount());
   }
 
   public static void validateTableDeletion(
@@ -226,7 +230,7 @@ public class MasterProcedureTestingUtility {
       public boolean visit(Result rowResult) throws IOException {
         RegionLocations list = MetaTableAccessor.getRegionLocations(rowResult);
         if (list == null) {
-          LOG.warn("No serialized HRegionInfo in " + rowResult);
+          LOG.warn("No serialized RegionInfo in " + rowResult);
           return true;
         }
         HRegionLocation l = list.getRegionLocation();
@@ -267,18 +271,18 @@ public class MasterProcedureTestingUtility {
 
   public static void validateColumnFamilyAddition(final HMaster master, final TableName tableName,
       final String family) throws IOException {
-    HTableDescriptor htd = master.getTableDescriptors().get(tableName);
+    TableDescriptor htd = master.getTableDescriptors().get(tableName);
     assertTrue(htd != null);
 
-    assertTrue(htd.hasFamily(family.getBytes()));
+    assertTrue(htd.hasColumnFamily(family.getBytes()));
   }
 
   public static void validateColumnFamilyDeletion(final HMaster master, final TableName tableName,
       final String family) throws IOException {
     // verify htd
-    HTableDescriptor htd = master.getTableDescriptors().get(tableName);
+    TableDescriptor htd = master.getTableDescriptors().get(tableName);
     assertTrue(htd != null);
-    assertFalse(htd.hasFamily(family.getBytes()));
+    assertFalse(htd.hasColumnFamily(family.getBytes()));
 
     // verify fs
     final FileSystem fs = master.getMasterFileSystem().getFileSystem();
@@ -290,13 +294,13 @@ public class MasterProcedureTestingUtility {
   }
 
   public static void validateColumnFamilyModification(final HMaster master,
-      final TableName tableName, final String family, HColumnDescriptor columnDescriptor)
+      final TableName tableName, final String family, ColumnFamilyDescriptor columnDescriptor)
       throws IOException {
-    HTableDescriptor htd = master.getTableDescriptors().get(tableName);
+    TableDescriptor htd = master.getTableDescriptors().get(tableName);
     assertTrue(htd != null);
 
-    HColumnDescriptor hcfd = htd.getFamily(family.getBytes());
-    assertTrue(hcfd.equals(columnDescriptor));
+    ColumnFamilyDescriptor hcfd = htd.getColumnFamily(family.getBytes());
+    assertEquals(0, ColumnFamilyDescriptor.COMPARATOR.compare(hcfd, columnDescriptor));
   }
 
   public static void loadData(final Connection connection, final TableName tableName,

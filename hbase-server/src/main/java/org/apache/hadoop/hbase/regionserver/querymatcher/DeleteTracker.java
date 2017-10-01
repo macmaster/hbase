@@ -17,7 +17,7 @@
  */
 package org.apache.hadoop.hbase.regionserver.querymatcher;
 
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceAudience;
 import org.apache.hadoop.hbase.Cell;
 import org.apache.hadoop.hbase.regionserver.ShipperListener;
 
@@ -69,23 +69,6 @@ public interface DeleteTracker extends ShipperListener {
    * This clears everything as if a new DeleteTracker was instantiated.
    */
   void reset();
-
-  /**
-   * Return codes for comparison of two Deletes.
-   * <p>
-   * The codes tell the merging function what to do.
-   * <p>
-   * INCLUDE means add the specified Delete to the merged list. NEXT means move to the next element
-   * in the specified list(s).
-   */
-  enum DeleteCompare {
-    INCLUDE_OLD_NEXT_OLD,
-    INCLUDE_OLD_NEXT_BOTH,
-    INCLUDE_NEW_NEXT_NEW,
-    INCLUDE_NEW_NEXT_BOTH,
-    NEXT_OLD,
-    NEXT_NEW
-  }
 
   /**
    * Returns codes for delete result. The codes tell the ScanQueryMatcher whether the kv is deleted

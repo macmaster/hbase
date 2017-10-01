@@ -25,12 +25,13 @@ import org.apache.hadoop.hbase.shaded.io.netty.channel.SimpleChannelInboundHandl
 import org.apache.hadoop.hbase.shaded.io.netty.handler.codec.LengthFieldBasedFrameDecoder;
 import org.apache.hadoop.hbase.shaded.io.netty.util.concurrent.Promise;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceAudience;
 import org.apache.hadoop.hbase.io.crypto.aes.CryptoAES;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.RPCProtos;
 
 /**
  * Implement logic to deal with the rpc connection header.
+ * @since 2.0.0
  */
 @InterfaceAudience.Private
 public class NettyHBaseRpcConnectionHeaderHandler extends SimpleChannelInboundHandler<ByteBuf> {

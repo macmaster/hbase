@@ -28,7 +28,7 @@ import java.math.BigInteger;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
 
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceAudience;
 import org.apache.hadoop.hbase.io.ByteBufferWriter;
 import org.apache.hadoop.hbase.io.util.StreamUtils;
 import org.apache.hadoop.io.IOUtils;
@@ -395,7 +395,7 @@ public final class ByteBufferUtils {
    * @param destinationOffset
    * @param length
    */
-  public static int copyFromBufferToBuffer(ByteBuffer in, ByteBuffer out, int sourceOffset,
+  public static void copyFromBufferToBuffer(ByteBuffer in, ByteBuffer out, int sourceOffset,
       int destinationOffset, int length) {
     if (in.hasArray() && out.hasArray()) {
       System.arraycopy(in.array(), sourceOffset + in.arrayOffset(), out.array(), out.arrayOffset()
@@ -409,7 +409,7 @@ public final class ByteBufferUtils {
       inDup.position(sourceOffset).limit(sourceOffset + length);
       outDup.put(inDup);
     }
-    return destinationOffset + length;
+    // We used to return a result but disabled; return destinationOffset + length;
   }
 
   /**
@@ -741,42 +741,6 @@ public final class ByteBufferUtils {
       }
     }
     return l1 - l2;
-  }
-
-  /*
-   * Both values are passed as is read by Unsafe. When platform is Little Endian, have to convert
-   * to corresponding Big Endian value and then do compare. We do all writes in Big Endian format.
-   */
-  private static boolean lessThanUnsignedLong(long x1, long x2) {
-    if (UnsafeAccess.littleEndian) {
-      x1 = Long.reverseBytes(x1);
-      x2 = Long.reverseBytes(x2);
-    }
-    return (x1 + Long.MIN_VALUE) < (x2 + Long.MIN_VALUE);
-  }
-
-  /*
-   * Both values are passed as is read by Unsafe. When platform is Little Endian, have to convert
-   * to corresponding Big Endian value and then do compare. We do all writes in Big Endian format.
-   */
-  private static boolean lessThanUnsignedInt(int x1, int x2) {
-    if (UnsafeAccess.littleEndian) {
-      x1 = Integer.reverseBytes(x1);
-      x2 = Integer.reverseBytes(x2);
-    }
-    return (x1 & 0xffffffffL) < (x2 & 0xffffffffL);
-  }
-
-  /*
-   * Both values are passed as is read by Unsafe. When platform is Little Endian, have to convert
-   * to corresponding Big Endian value and then do compare. We do all writes in Big Endian format.
-   */
-  private static boolean lessThanUnsignedShort(short x1, short x2) {
-    if (UnsafeAccess.littleEndian) {
-      x1 = Short.reverseBytes(x1);
-      x2 = Short.reverseBytes(x2);
-    }
-    return (x1 & 0xffff) < (x2 & 0xffff);
   }
 
   /**

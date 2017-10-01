@@ -25,7 +25,7 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.HBaseInterfaceAudience;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.HTableDescriptor;
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceAudience;
 import org.apache.hadoop.hbase.client.TableDescriptor;
 
 /**
@@ -72,7 +72,7 @@ public class ConstantSizeRegionSplitPolicy extends RegionSplitPolicy {
     boolean force = region.shouldForceSplit();
     boolean foundABigStore = false;
 
-    for (Store store : region.getStores()) {
+    for (HStore store : region.getStores()) {
       // If any of the stores are unable to split (eg they contain reference files)
       // then don't split
       if ((!store.canSplit())) {

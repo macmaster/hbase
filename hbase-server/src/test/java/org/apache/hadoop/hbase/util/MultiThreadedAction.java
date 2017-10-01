@@ -44,12 +44,11 @@ import org.apache.hadoop.hbase.client.ConnectionFactory;
 import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.ClientProtos.MutationProto.MutationType;
 import org.apache.hadoop.hbase.util.test.LoadTestDataGenerator;
-import org.apache.hadoop.hbase.util.test.LoadTestKVGenerator;
 import org.apache.hadoop.util.StringUtils;
 
 /**
  * Common base class for reader and writer parts of multi-thread HBase load
- * test ({@link LoadTestTool}).
+ * test (See LoadTestTool).
  */
 public abstract class MultiThreadedAction {
   private static final Log LOG = LogFactory.getLog(MultiThreadedAction.class);

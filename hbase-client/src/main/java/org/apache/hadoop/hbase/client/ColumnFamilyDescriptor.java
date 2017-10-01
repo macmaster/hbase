@@ -21,7 +21,7 @@ import java.util.Comparator;
 import java.util.Map;
 import org.apache.hadoop.hbase.KeepDeletedCells;
 import org.apache.hadoop.hbase.MemoryCompactionPolicy;
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceAudience;
 import org.apache.hadoop.hbase.io.compress.Compression;
 import org.apache.hadoop.hbase.io.encoding.DataBlockEncoding;
 import org.apache.hadoop.hbase.regionserver.BloomType;
@@ -34,6 +34,7 @@ import org.apache.hadoop.hbase.util.Bytes;
  * It is used as input when creating a table or adding a column.
  *
  * To construct a new instance, use the {@link ColumnFamilyDescriptorBuilder} methods
+ * @since 2.0.0
  */
 @InterfaceAudience.Public
 public interface ColumnFamilyDescriptor {

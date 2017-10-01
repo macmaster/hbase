@@ -51,7 +51,17 @@ import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.PathFilter;
-import org.apache.hadoop.hbase.*;
+import org.apache.hadoop.hbase.Cell;
+import org.apache.hadoop.hbase.HBaseConfiguration;
+import org.apache.hadoop.hbase.HBaseTestingUtility;
+import org.apache.hadoop.hbase.HColumnDescriptor;
+import org.apache.hadoop.hbase.HConstants;
+import org.apache.hadoop.hbase.HRegionInfo;
+import org.apache.hadoop.hbase.HTableDescriptor;
+import org.apache.hadoop.hbase.KeyValue;
+import org.apache.hadoop.hbase.MiniHBaseCluster;
+import org.apache.hadoop.hbase.ServerName;
+import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.Delete;
 import org.apache.hadoop.hbase.client.Get;
 import org.apache.hadoop.hbase.client.Put;
@@ -59,10 +69,7 @@ import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.client.ResultScanner;
 import org.apache.hadoop.hbase.client.Scan;
 import org.apache.hadoop.hbase.client.Table;
-import org.apache.hadoop.hbase.master.HMaster;
 import org.apache.hadoop.hbase.monitoring.MonitoredTask;
-import org.apache.hadoop.hbase.regionserver.CompactingMemStore;
-import org.apache.hadoop.hbase.shaded.protobuf.generated.ZooKeeperProtos.SplitLogTask.RecoveryMode;
 import org.apache.hadoop.hbase.regionserver.DefaultStoreEngine;
 import org.apache.hadoop.hbase.regionserver.DefaultStoreFlusher;
 import org.apache.hadoop.hbase.regionserver.FlushRequestListener;
@@ -87,6 +94,7 @@ import org.apache.hadoop.hbase.util.HFileTestUtil;
 import org.apache.hadoop.hbase.util.Pair;
 import org.apache.hadoop.hbase.wal.AbstractFSWALProvider;
 import org.apache.hadoop.hbase.wal.WAL;
+import org.apache.hadoop.hbase.wal.WALEdit;
 import org.apache.hadoop.hbase.wal.WALFactory;
 import org.apache.hadoop.hbase.wal.WALKey;
 import org.apache.hadoop.hbase.wal.WALSplitter;
@@ -101,6 +109,8 @@ import org.junit.rules.TestName;
 import org.mockito.Mockito;
 import org.mockito.invocation.InvocationOnMock;
 import org.mockito.stubbing.Answer;
+
+import org.apache.hadoop.hbase.shaded.protobuf.generated.ZooKeeperProtos.SplitLogTask.RecoveryMode;
 
 /**
  * Test replay of edits out of a WAL split.
@@ -153,7 +163,8 @@ public abstract class AbstractTestWALReplay {
     if (TEST_UTIL.getDFSCluster().getFileSystem().exists(this.hbaseRootDir)) {
       TEST_UTIL.getDFSCluster().getFileSystem().delete(this.hbaseRootDir, true);
     }
-    this.mode = (conf.getBoolean(HConstants.DISTRIBUTED_LOG_REPLAY_KEY, false) ?
+    this.mode = (conf.getBoolean(HConstants.DISTRIBUTED_LOG_REPLAY_KEY,
+            HConstants.DEFAULT_DISTRIBUTED_LOG_REPLAY_CONFIG) ?
         RecoveryMode.LOG_REPLAY : RecoveryMode.LOG_SPLITTING);
     this.wals = new WALFactory(conf, null, currentTest.getMethodName());
   }
@@ -231,10 +242,11 @@ public abstract class AbstractTestWALReplay {
     assertEquals(0, count);
 
     // flush region and make major compaction
-    Region region =  destServer.getOnlineRegion(destRegion.getRegionInfo().getRegionName());
+    HRegion region =
+        (HRegion) destServer.getOnlineRegion(destRegion.getRegionInfo().getRegionName());
     region.flush(true);
     // wait to complete major compaction
-    for (Store store : region.getStores()) {
+    for (HStore store : region.getStores()) {
       store.triggerMajorCompaction();
     }
     region.compact(true);
@@ -636,7 +648,7 @@ public abstract class AbstractTestWALReplay {
     // Switch between throw and not throw exception in flush
     static final AtomicBoolean throwExceptionWhenFlushing = new AtomicBoolean(false);
 
-    public CustomStoreFlusher(Configuration conf, Store store) {
+    public CustomStoreFlusher(Configuration conf, HStore store) {
       super(conf, store);
     }
     @Override
@@ -823,12 +835,12 @@ public abstract class AbstractTestWALReplay {
           final HRegion region =
               new HRegion(basedir, newWal, newFS, newConf, hri, htd, null) {
             @Override
-            protected FlushResult internalFlushcache(final WAL wal, final long myseqid,
-                final Collection<Store> storesToFlush, MonitoredTask status,
+            protected FlushResultImpl internalFlushcache(final WAL wal, final long myseqid,
+                final Collection<HStore> storesToFlush, MonitoredTask status,
                 boolean writeFlushWalMarker)
                     throws IOException {
               LOG.info("InternalFlushCache Invoked");
-              FlushResult fs = super.internalFlushcache(wal, myseqid, storesToFlush,
+              FlushResultImpl fs = super.internalFlushcache(wal, myseqid, storesToFlush,
                   Mockito.mock(MonitoredTask.class), writeFlushWalMarker);
               flushcount.incrementAndGet();
               return fs;

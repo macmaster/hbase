@@ -19,15 +19,17 @@
 package org.apache.hadoop.hbase.coprocessor.example;
 
 import java.io.IOException;
+import java.util.Optional;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.hbase.CoprocessorEnvironment;
-import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.TableName;
+import org.apache.hadoop.hbase.client.RegionInfo;
 import org.apache.hadoop.hbase.client.TableDescriptor;
-import org.apache.hadoop.hbase.coprocessor.MasterObserver;
+import org.apache.hadoop.hbase.coprocessor.MasterCoprocessor;
 import org.apache.hadoop.hbase.coprocessor.MasterCoprocessorEnvironment;
+import org.apache.hadoop.hbase.coprocessor.MasterObserver;
 import org.apache.hadoop.hbase.coprocessor.ObserverContext;
 import org.apache.hadoop.hbase.metrics.Counter;
 import org.apache.hadoop.hbase.metrics.Gauge;
@@ -45,7 +47,11 @@ import org.apache.hadoop.hbase.metrics.Timer;
  * </p>
  * @see ExampleRegionObserverWithMetrics
  */
-public class ExampleMasterObserverWithMetrics implements MasterObserver {
+public class ExampleMasterObserverWithMetrics implements MasterCoprocessor, MasterObserver {
+  @Override
+  public Optional<MasterObserver> getMasterObserver() {
+    return Optional.of(this);
+  }
 
   private static final Log LOG = LogFactory.getLog(ExampleMasterObserverWithMetrics.class);
 
@@ -68,7 +74,7 @@ public class ExampleMasterObserverWithMetrics implements MasterObserver {
 
   @Override
   public void preCreateTable(ObserverContext<MasterCoprocessorEnvironment> ctx,
-                             TableDescriptor desc, HRegionInfo[] regions) throws IOException {
+                             TableDescriptor desc, RegionInfo[] regions) throws IOException {
     // we rely on the fact that there is only 1 instance of our MasterObserver. We keep track of
     // when the operation starts before the operation is executing.
     this.createTableStartTime = System.currentTimeMillis();
@@ -76,7 +82,7 @@ public class ExampleMasterObserverWithMetrics implements MasterObserver {
 
   @Override
   public void postCreateTable(ObserverContext<MasterCoprocessorEnvironment> ctx,
-                              TableDescriptor desc, HRegionInfo[] regions) throws IOException {
+                              TableDescriptor desc, RegionInfo[] regions) throws IOException {
     if (this.createTableStartTime > 0) {
       long time = System.currentTimeMillis() - this.createTableStartTime;
       LOG.info("Create table took: " + time);

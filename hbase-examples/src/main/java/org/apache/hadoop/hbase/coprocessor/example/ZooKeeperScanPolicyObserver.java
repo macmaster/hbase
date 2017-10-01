@@ -19,9 +19,10 @@
 package org.apache.hadoop.hbase.coprocessor.example;
 
 import java.io.IOException;
-import java.util.Collections;
 import java.util.List;
 import java.util.NavigableSet;
+import java.util.Optional;
+import java.util.OptionalInt;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -30,6 +31,7 @@ import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.client.IsolationLevel;
 import org.apache.hadoop.hbase.client.Scan;
 import org.apache.hadoop.hbase.coprocessor.ObserverContext;
+import org.apache.hadoop.hbase.coprocessor.RegionCoprocessor;
 import org.apache.hadoop.hbase.coprocessor.RegionCoprocessorEnvironment;
 import org.apache.hadoop.hbase.coprocessor.RegionObserver;
 import org.apache.hadoop.hbase.regionserver.HStore;
@@ -39,6 +41,7 @@ import org.apache.hadoop.hbase.regionserver.ScanInfo;
 import org.apache.hadoop.hbase.regionserver.ScanType;
 import org.apache.hadoop.hbase.regionserver.Store;
 import org.apache.hadoop.hbase.regionserver.StoreScanner;
+import org.apache.hadoop.hbase.regionserver.compactions.CompactionLifeCycleTracker;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.EnvironmentEdgeManager;
 import org.apache.zookeeper.KeeperException;
@@ -50,23 +53,35 @@ import org.apache.zookeeper.ZooKeeper;
  * This is an example showing how a RegionObserver could configured
  * via ZooKeeper in order to control a Region compaction, flush, and scan policy.
  *
- * This also demonstrated the use of shared 
+ * This also demonstrated the use of shared
  * {@link org.apache.hadoop.hbase.coprocessor.RegionObserver} state.
  * See {@link RegionCoprocessorEnvironment#getSharedData()}.
  *
  * This would be useful for an incremental backup tool, which would indicate the last
  * time of a successful backup via ZK and instruct HBase to not delete data that was
- * inserted since (based on wall clock time). 
+ * inserted since (based on wall clock time).
  *
  * This implements org.apache.zookeeper.Watcher directly instead of using
- * {@link org.apache.hadoop.hbase.zookeeper.ZooKeeperWatcher}, 
+ * {@link org.apache.hadoop.hbase.zookeeper.ZooKeeperWatcher},
  * because RegionObservers come and go and currently
  * listeners registered with ZooKeeperWatcher cannot be removed.
  */
-public class ZooKeeperScanPolicyObserver implements RegionObserver {
+public class ZooKeeperScanPolicyObserver implements RegionCoprocessor, RegionObserver {
+  @Override
+  public Optional<RegionObserver> getRegionObserver() {
+    return Optional.of(this);
+  }
+
+  // The zk ensemble info is put in hbase config xml with given custom key.
+  public static final String ZK_ENSEMBLE_KEY = "ZooKeeperScanPolicyObserver.zookeeper.ensemble";
+  public static final String ZK_SESSION_TIMEOUT_KEY =
+      "ZooKeeperScanPolicyObserver.zookeeper.session.timeout";
+  public static final int ZK_SESSION_TIMEOUT_DEFAULT = 30 * 1000; // 30 secs
   public static final String node = "/backup/example/lastbackup";
   public static final String zkkey = "ZK";
   private static final Log LOG = LogFactory.getLog(ZooKeeperScanPolicyObserver.class);
+
+  private ZooKeeper zk = null;
 
   /**
    * Internal watcher that keep "data" up to date asynchronously.
@@ -128,32 +143,32 @@ public class ZooKeeperScanPolicyObserver implements RegionObserver {
 
     @Override
     public void process(WatchedEvent event) {
-      switch(event.getType()) {
-      case NodeDataChanged:
-      case NodeCreated:
-      try {
-        // get data and re-watch
-        data = zk.getData(node, this, null);
-        LOG.debug("Read asynchronously: "+(data == null ? "null" : Bytes.toLong(data)));
-      } catch (InterruptedException ix) {
-      } catch (KeeperException kx) {
-        needSetup = true;
-      }
-      break;
+      switch (event.getType()) {
+        case NodeDataChanged:
+        case NodeCreated:
+          try {
+            // get data and re-watch
+            data = zk.getData(node, this, null);
+            LOG.debug("Read asynchronously: " + (data == null ? "null" : Bytes.toLong(data)));
+          } catch (InterruptedException ix) {
+          } catch (KeeperException kx) {
+            needSetup = true;
+          }
+          break;
 
-      case NodeDeleted:
-      try {
-        // just re-watch
-        zk.exists(node, this);
-        data = null;
-      } catch (InterruptedException ix) {
-      } catch (KeeperException kx) {
-        needSetup = true;
-      }
-      break;
+        case NodeDeleted:
+          try {
+            // just re-watch
+            zk.exists(node, this);
+            data = null;
+          } catch (InterruptedException ix) {
+          } catch (KeeperException kx) {
+            needSetup = true;
+          }
+          break;
 
-      default:
-        // ignore
+        default:
+          // ignore
       }
     }
   }
@@ -164,68 +179,75 @@ public class ZooKeeperScanPolicyObserver implements RegionObserver {
     if (!re.getSharedData().containsKey(zkkey)) {
       // there is a short race here
       // in the worst case we create a watcher that will be notified once
-      re.getSharedData().putIfAbsent(
-          zkkey,
-          new ZKWatcher(re.getRegionServerServices().getZooKeeper()
-              .getRecoverableZooKeeper().getZooKeeper()));
+      String ensemble = re.getConfiguration().get(ZK_ENSEMBLE_KEY);
+      int sessionTimeout = re.getConfiguration().getInt(ZK_SESSION_TIMEOUT_KEY,
+          ZK_SESSION_TIMEOUT_DEFAULT);
+      this.zk = new ZooKeeper(ensemble, sessionTimeout, null);
+      re.getSharedData().putIfAbsent(zkkey, new ZKWatcher(zk));
+    }
+  }
+
+  @Override
+  public void stop(CoprocessorEnvironment env) throws IOException {
+    if (this.zk != null) {
+      try {
+        this.zk.close();
+      } catch (InterruptedException e) {
+        LOG.error("Excepion while closing the ZK connection!", e);
+      }
     }
   }
 
   protected ScanInfo getScanInfo(Store store, RegionCoprocessorEnvironment e) {
-    byte[] data = ((ZKWatcher)e.getSharedData().get(zkkey)).getData();
+    byte[] data = ((ZKWatcher) e.getSharedData().get(zkkey)).getData();
     if (data == null) {
       return null;
     }
-    ScanInfo oldSI = store.getScanInfo();
+    ScanInfo oldSI = ((HStore) store).getScanInfo();
     if (oldSI.getTtl() == Long.MAX_VALUE) {
       return null;
     }
-    long ttl = Math.max(EnvironmentEdgeManager.currentTime() -
-        Bytes.toLong(data), oldSI.getTtl());
+    long ttl = Math.max(EnvironmentEdgeManager.currentTime() - Bytes.toLong(data), oldSI.getTtl());
     return new ScanInfo(oldSI.getConfiguration(), store.getColumnFamilyDescriptor(), ttl,
         oldSI.getTimeToPurgeDeletes(), oldSI.getComparator());
   }
 
   @Override
-  public InternalScanner preFlushScannerOpen(final ObserverContext<RegionCoprocessorEnvironment> c,
-      Store store, List<KeyValueScanner> scanners, InternalScanner s) throws IOException {
+  public InternalScanner preFlushScannerOpen(ObserverContext<RegionCoprocessorEnvironment> c,
+      Store store, List<KeyValueScanner> scanners, InternalScanner s, long readPoint)
+      throws IOException {
     ScanInfo scanInfo = getScanInfo(store, c.getEnvironment());
     if (scanInfo == null) {
       // take default action
       return null;
     }
-    Scan scan = new Scan();
-    scan.setMaxVersions(scanInfo.getMaxVersions());
-    return new StoreScanner(store, scanInfo, scan, scanners,
+    return new StoreScanner((HStore) store, scanInfo, OptionalInt.empty(), scanners,
         ScanType.COMPACT_RETAIN_DELETES, store.getSmallestReadPoint(), HConstants.OLDEST_TIMESTAMP);
   }
 
   @Override
-  public InternalScanner preCompactScannerOpen(
-      final ObserverContext<RegionCoprocessorEnvironment> c,
+  public InternalScanner preCompactScannerOpen(ObserverContext<RegionCoprocessorEnvironment> c,
       Store store, List<? extends KeyValueScanner> scanners, ScanType scanType, long earliestPutTs,
-      InternalScanner s) throws IOException {
+      InternalScanner s, CompactionLifeCycleTracker tracker, long readPoint) throws IOException {
     ScanInfo scanInfo = getScanInfo(store, c.getEnvironment());
     if (scanInfo == null) {
       // take default action
       return null;
     }
-    Scan scan = new Scan();
-    scan.setMaxVersions(scanInfo.getMaxVersions());
-    return new StoreScanner(store, scanInfo, scan, scanners, scanType,
+    return new StoreScanner((HStore) store, scanInfo, OptionalInt.empty(), scanners, scanType,
         store.getSmallestReadPoint(), earliestPutTs);
   }
 
   @Override
-  public KeyValueScanner preStoreScannerOpen(final ObserverContext<RegionCoprocessorEnvironment> c,
-      final Store store, final Scan scan, final NavigableSet<byte[]> targetCols,
-      final KeyValueScanner s) throws IOException {
+  public KeyValueScanner preStoreScannerOpen(ObserverContext<RegionCoprocessorEnvironment> c,
+      Store store, Scan scan, NavigableSet<byte[]> targetCols, KeyValueScanner s, long readPoint)
+      throws IOException {
     ScanInfo scanInfo = getScanInfo(store, c.getEnvironment());
     if (scanInfo == null) {
       // take default action
       return null;
     }
-    return new StoreScanner(store, scanInfo, scan, targetCols,
-      ((HStore)store).getHRegion().getReadPoint(IsolationLevel.READ_COMMITTED));
+    return new StoreScanner((HStore) store, scanInfo, scan, targetCols,
+        ((HStore) store).getHRegion().getReadPoint(IsolationLevel.READ_COMMITTED));
   }
 }

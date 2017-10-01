@@ -20,7 +20,7 @@ package org.apache.hadoop.hbase.master;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceAudience;
 import org.apache.hadoop.hbase.ServerName;
 import org.apache.hadoop.hbase.util.EnvironmentEdgeManager;
 import org.apache.hadoop.hbase.util.Pair;
@@ -75,7 +75,7 @@ public class DeadServer {
     Iterator<ServerName> it = deadServers.keySet().iterator();
     while (it.hasNext()) {
       ServerName sn = it.next();
-      if (ServerName.isSameHostnameAndPort(sn, newServerName)) {
+      if (ServerName.isSameAddress(sn, newServerName)) {
         it.remove();
         return true;
       }
@@ -149,7 +149,7 @@ public class DeadServer {
     Iterator<ServerName> it = deadServers.keySet().iterator();
     while (it.hasNext()) {
       ServerName sn = it.next();
-      if (ServerName.isSameHostnameAndPort(sn, newServerName)) {
+      if (ServerName.isSameAddress(sn, newServerName)) {
         it.remove();
       }
     }
@@ -202,4 +202,17 @@ public class DeadServer {
       return o1.getSecond().compareTo(o2.getSecond());
     }
   };
+
+  /**
+   * remove the specified dead server
+   * @param deadServerName the dead server name
+   * @return true if this server was removed
+   */
+
+  public synchronized boolean removeDeadServer(final ServerName deadServerName) {
+    if (deadServers.remove(deadServerName) == null) {
+      return false;
+    }
+    return true;
+  }
 }

@@ -31,6 +31,7 @@ import java.lang.reflect.Modifier;
 import java.net.SocketTimeoutException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.Random;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.SynchronousQueue;
@@ -55,6 +56,7 @@ import org.apache.hadoop.hbase.ServerName;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.Waiter;
 import org.apache.hadoop.hbase.coprocessor.ObserverContext;
+import org.apache.hadoop.hbase.coprocessor.RegionCoprocessor;
 import org.apache.hadoop.hbase.coprocessor.RegionCoprocessorEnvironment;
 import org.apache.hadoop.hbase.coprocessor.RegionObserver;
 import org.apache.hadoop.hbase.exceptions.ClientExceptionsUtil;
@@ -69,7 +71,7 @@ import org.apache.hadoop.hbase.master.HMaster;
 import org.apache.hadoop.hbase.regionserver.HRegionServer;
 import org.apache.hadoop.hbase.regionserver.Region;
 import org.apache.hadoop.hbase.regionserver.RegionServerStoppedException;
-import org.apache.hadoop.hbase.regionserver.wal.WALEdit;
+import org.apache.hadoop.hbase.wal.WALEdit;
 import org.apache.hadoop.hbase.testclassification.LargeTests;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.EnvironmentEdgeManager;
@@ -118,7 +120,7 @@ public class TestHCM {
 /**
 * This copro sleeps 20 second. The first call it fails. The second time, it works.
 */
-  public static class SleepAndFailFirstTime implements RegionObserver {
+  public static class SleepAndFailFirstTime implements RegionCoprocessor, RegionObserver {
     static final AtomicLong ct = new AtomicLong(0);
     static final String SLEEP_TIME_CONF_KEY =
         "hbase.coprocessor.SleepAndFailFirstTime.sleepTime";
@@ -126,6 +128,11 @@ public class TestHCM {
     static final AtomicLong sleepTime = new AtomicLong(DEFAULT_SLEEP_TIME);
 
     public SleepAndFailFirstTime() {
+    }
+
+    @Override
+    public Optional<RegionObserver> getRegionObserver() {
+      return Optional.of(this);
     }
 
     @Override
@@ -175,8 +182,14 @@ public class TestHCM {
 
   }
 
-  public static class SleepCoprocessor implements RegionObserver {
+  public static class SleepCoprocessor implements RegionCoprocessor, RegionObserver {
     public static final int SLEEP_TIME = 5000;
+
+    @Override
+    public Optional<RegionObserver> getRegionObserver() {
+      return Optional.of(this);
+    }
+
     @Override
     public void preGetOp(final ObserverContext<RegionCoprocessorEnvironment> e,
         final Get get, final List<Cell> results) throws IOException {
@@ -204,9 +217,15 @@ public class TestHCM {
 
   }
 
-  public static class SleepLongerAtFirstCoprocessor implements RegionObserver {
+  public static class SleepLongerAtFirstCoprocessor implements RegionCoprocessor, RegionObserver {
     public static final int SLEEP_TIME = 2000;
     static final AtomicLong ct = new AtomicLong(0);
+
+    @Override
+    public Optional<RegionObserver> getRegionObserver() {
+      return Optional.of(this);
+    }
+
     @Override
     public void preGetOp(final ObserverContext<RegionCoprocessorEnvironment> e,
         final Get get, final List<Cell> results) throws IOException {
@@ -1328,7 +1347,7 @@ public class TestHCM {
       assertTrue(!destServerName.equals(metaServerName));
 
        //find another row in the cur server that is less than ROW_X
-      List<Region> regions = curServer.getOnlineRegions(TABLE_NAME3);
+      List<Region> regions = curServer.getRegions(TABLE_NAME3);
       byte[] otherRow = null;
        for (Region region : regions) {
          if (!region.getRegionInfo().getEncodedName().equals(toMove.getRegionInfo().getEncodedName())

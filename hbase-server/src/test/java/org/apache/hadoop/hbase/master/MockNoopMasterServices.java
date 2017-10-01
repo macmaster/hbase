@@ -17,22 +17,22 @@
  */
 package org.apache.hadoop.hbase.master;
 
+import static org.mockito.Mockito.mock;
+
 import java.io.IOException;
 import java.util.List;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.ChoreService;
 import org.apache.hadoop.hbase.CoordinatedStateManager;
-import org.apache.hadoop.hbase.HColumnDescriptor;
-import org.apache.hadoop.hbase.HRegionInfo;
-import org.apache.hadoop.hbase.HTableDescriptor;
-import org.apache.hadoop.hbase.ProcedureInfo;
 import org.apache.hadoop.hbase.Server;
 import org.apache.hadoop.hbase.ServerName;
 import org.apache.hadoop.hbase.TableDescriptors;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.ClusterConnection;
+import org.apache.hadoop.hbase.client.ColumnFamilyDescriptor;
 import org.apache.hadoop.hbase.client.MasterSwitchType;
+import org.apache.hadoop.hbase.client.RegionInfo;
 import org.apache.hadoop.hbase.client.TableDescriptor;
 import org.apache.hadoop.hbase.executor.ExecutorService;
 import org.apache.hadoop.hbase.favored.FavoredNodesManager;
@@ -42,7 +42,8 @@ import org.apache.hadoop.hbase.master.normalizer.RegionNormalizer;
 import org.apache.hadoop.hbase.master.procedure.MasterProcedureEnv;
 import org.apache.hadoop.hbase.master.snapshot.SnapshotManager;
 import org.apache.hadoop.hbase.procedure.MasterProcedureManagerHost;
-import org.apache.hadoop.hbase.procedure2.LockInfo;
+import org.apache.hadoop.hbase.procedure2.LockedResource;
+import org.apache.hadoop.hbase.procedure2.Procedure;
 import org.apache.hadoop.hbase.procedure2.ProcedureEvent;
 import org.apache.hadoop.hbase.procedure2.ProcedureExecutor;
 import org.apache.hadoop.hbase.quotas.MasterQuotaManager;
@@ -51,9 +52,8 @@ import org.apache.hadoop.hbase.replication.ReplicationPeerConfig;
 import org.apache.hadoop.hbase.replication.ReplicationPeerDescription;
 import org.apache.hadoop.hbase.zookeeper.MetaTableLocator;
 import org.apache.hadoop.hbase.zookeeper.ZooKeeperWatcher;
-import com.google.protobuf.Service;
 
-import static org.mockito.Mockito.mock;
+import com.google.protobuf.Service;
 
 public class MockNoopMasterServices implements MasterServices, Server {
   private final Configuration conf;
@@ -75,7 +75,7 @@ public class MockNoopMasterServices implements MasterServices, Server {
 
   @Override
   public long createTable(
-      final HTableDescriptor desc,
+      final TableDescriptor desc,
       final byte[][] splitKeys,
       final long nonceGroup,
       final long nonce) throws IOException {
@@ -84,7 +84,7 @@ public class MockNoopMasterServices implements MasterServices, Server {
   }
 
   @Override
-  public long createSystemTable(final HTableDescriptor hTableDescriptor) throws IOException {
+  public long createSystemTable(final TableDescriptor tableDescriptor) throws IOException {
     return -1;
   }
 
@@ -227,12 +227,12 @@ public class MockNoopMasterServices implements MasterServices, Server {
   }
 
   @Override
-  public List<ProcedureInfo> listProcedures() throws IOException {
+  public List<Procedure<?>> getProcedures() throws IOException {
     return null;  //To change body of implemented methods use File | Settings | File Templates.
   }
 
   @Override
-  public List<LockInfo> listLocks() throws IOException {
+  public List<LockedResource> getLocks() throws IOException {
     return null;
   }
 
@@ -267,7 +267,7 @@ public class MockNoopMasterServices implements MasterServices, Server {
   @Override
   public long modifyTable(
       final TableName tableName,
-      final HTableDescriptor descriptor,
+      final TableDescriptor descriptor,
       final long nonceGroup,
       final long nonce) throws IOException {
     return -1;
@@ -290,13 +290,13 @@ public class MockNoopMasterServices implements MasterServices, Server {
   }
 
   @Override
-  public long addColumn(final TableName tableName, final HColumnDescriptor columnDescriptor,
+  public long addColumn(final TableName tableName, final ColumnFamilyDescriptor columnDescriptor,
       final long nonceGroup, final long nonce) throws IOException {
     return -1;
   }
 
   @Override
-  public long modifyColumn(final TableName tableName, final HColumnDescriptor descriptor,
+  public long modifyColumn(final TableName tableName, final ColumnFamilyDescriptor descriptor,
       final long nonceGroup, final long nonce) throws IOException {
     return -1;
   }
@@ -309,7 +309,7 @@ public class MockNoopMasterServices implements MasterServices, Server {
 
   @Override
   public long mergeRegions(
-      final HRegionInfo[] regionsToMerge,
+      final RegionInfo[] regionsToMerge,
       final boolean forcible,
       final long nonceGroup,
       final long nonce) throws IOException {
@@ -318,7 +318,7 @@ public class MockNoopMasterServices implements MasterServices, Server {
 
   @Override
   public long splitRegion(
-      final HRegionInfo regionInfo,
+      final RegionInfo regionInfo,
       final byte[] splitRow,
       final long nonceGroup,
       final long nonce) throws IOException {

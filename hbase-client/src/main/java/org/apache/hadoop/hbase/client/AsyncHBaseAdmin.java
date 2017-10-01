@@ -18,6 +18,7 @@
 package org.apache.hadoop.hbase.client;
 
 import java.util.Collection;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -26,38 +27,30 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.function.Function;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
-
-import org.apache.hadoop.hbase.shaded.com.google.common.annotations.VisibleForTesting;
-
-import org.apache.hadoop.hbase.shaded.io.netty.util.Timeout;
-import org.apache.hadoop.hbase.shaded.io.netty.util.TimerTask;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.hbase.ClusterStatus;
-import org.apache.hadoop.hbase.ClusterStatus.Options;
-import org.apache.hadoop.hbase.HRegionInfo;
-import org.apache.hadoop.hbase.ProcedureInfo;
+import org.apache.hadoop.hbase.ClusterStatus.Option;
+import org.apache.hadoop.hbase.NamespaceDescriptor;
 import org.apache.hadoop.hbase.RegionLoad;
 import org.apache.hadoop.hbase.ServerName;
-import org.apache.hadoop.hbase.NamespaceDescriptor;
 import org.apache.hadoop.hbase.TableName;
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
 import org.apache.hadoop.hbase.client.RawAsyncTable.CoprocessorCallable;
 import org.apache.hadoop.hbase.client.replication.TableCFs;
 import org.apache.hadoop.hbase.client.security.SecurityCapability;
-import org.apache.hadoop.hbase.procedure2.LockInfo;
 import org.apache.hadoop.hbase.quotas.QuotaFilter;
 import org.apache.hadoop.hbase.quotas.QuotaSettings;
 import org.apache.hadoop.hbase.replication.ReplicationPeerConfig;
 import org.apache.hadoop.hbase.replication.ReplicationPeerDescription;
 import org.apache.hadoop.hbase.util.Pair;
+import org.apache.yetus.audience.InterfaceAudience;
 
 import com.google.protobuf.RpcChannel;
 
 /**
  * The implementation of AsyncAdmin.
+ * @since 2.0.0
  */
 @InterfaceAudience.Private
 public class AsyncHBaseAdmin implements AsyncAdmin {
@@ -221,12 +214,12 @@ public class AsyncHBaseAdmin implements AsyncAdmin {
   }
 
   @Override
-  public CompletableFuture<List<HRegionInfo>> getOnlineRegions(ServerName serverName) {
+  public CompletableFuture<List<RegionInfo>> getOnlineRegions(ServerName serverName) {
     return wrap(rawAdmin.getOnlineRegions(serverName));
   }
 
   @Override
-  public CompletableFuture<List<HRegionInfo>> getTableRegions(TableName tableName) {
+  public CompletableFuture<List<RegionInfo>> getTableRegions(TableName tableName) {
     return wrap(rawAdmin.getTableRegions(tableName));
   }
 
@@ -468,13 +461,13 @@ public class AsyncHBaseAdmin implements AsyncAdmin {
   }
 
   @Override
-  public CompletableFuture<List<ProcedureInfo>> listProcedures() {
-    return wrap(rawAdmin.listProcedures());
+  public CompletableFuture<String> getProcedures() {
+    return wrap(rawAdmin.getProcedures());
   }
 
   @Override
-  public CompletableFuture<List<LockInfo>> listProcedureLocks() {
-    return wrap(rawAdmin.listProcedureLocks());
+  public CompletableFuture<String> getLocks() {
+    return wrap(rawAdmin.getLocks());
   }
 
   @Override
@@ -494,11 +487,11 @@ public class AsyncHBaseAdmin implements AsyncAdmin {
 
   @Override
   public CompletableFuture<ClusterStatus> getClusterStatus() {
-    return getClusterStatus(Options.getDefaultOptions());
+    return getClusterStatus(EnumSet.allOf(Option.class));
   }
 
   @Override
-  public CompletableFuture<ClusterStatus> getClusterStatus(Options options) {
+  public CompletableFuture<ClusterStatus> getClusterStatus(EnumSet<Option> options) {
     return wrap(rawAdmin.getClusterStatus(options));
   }
 
@@ -644,5 +637,15 @@ public class AsyncHBaseAdmin implements AsyncAdmin {
   public <S, R> CompletableFuture<R> coprocessorService(Function<RpcChannel, S> stubMaker,
       CoprocessorCallable<S, R> callable, ServerName serverName) {
     return wrap(rawAdmin.coprocessorService(stubMaker, callable, serverName));
+  }
+
+  @Override
+  public CompletableFuture<List<ServerName>> listDeadServers() {
+    return wrap(rawAdmin.listDeadServers());
+  }
+
+  @Override
+  public CompletableFuture<List<ServerName>> clearDeadServers(List<ServerName> servers) {
+    return wrap(rawAdmin.clearDeadServers(servers));
   }
 }

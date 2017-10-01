@@ -150,7 +150,7 @@
                 <excludes>
                   <!--Exclude protobuf itself. We get a patched version from hbase-thirdparty.
                     -->
-                  <exclude>org.apache.hadoop.hbase.shaded.com.google:*</exclude>
+                  <exclude>org.apache.hbase.thirdparty:*</exclude>
                   <exclude>com.google.protobuf:protobuf-java</exclude>
                   <exclude>com.google.code.findbugs:*</exclude>
                   <exclude>com.google.errorprone:error_prone_annotations</exclude>
@@ -160,7 +160,7 @@
                   <exclude>junit:junit</exclude>
                   <exclude>log4j:log4j</exclude>
                   <exclude>commons-logging:commons-logging</exclude>
-                  <exclude>org.apache.hbase:hbase-annotations</exclude>
+                  <exclude>org.apache.yetus:audience-annotations</exclude>
                   <exclude>com.github.stephenc.fingbugs:*</exclude>
                   <exclude></exclude>
                 </excludes>
@@ -226,24 +226,9 @@
       <artifactId>hbase-shaded-protobuf</artifactId>
     </dependency>
     <dependency>
-      <groupId>org.apache.hbase</groupId>
-      <artifactId>hbase-annotations</artifactId>
-      <exclusions>
-        <exclusion>
-          <groupId>jdk.tools</groupId>
-          <artifactId>jdk.tools</artifactId>
-        </exclusion>
-      </exclusions>
-    </dependency>
-    <!-- General dependencies -->
-    <dependency>
-      <groupId>com.google.protobuf</groupId>
-      <artifactId>protobuf-java</artifactId>
-      <version>${internal.protobuf.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>commons-logging</groupId>
-      <artifactId>commons-logging</artifactId>
+      <groupId>junit</groupId>
+      <artifactId>junit</artifactId>
+      <scope>test</scope>
     </dependency>
   </dependencies>
   <profiles>

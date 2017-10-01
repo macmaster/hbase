@@ -26,6 +26,7 @@ import static org.junit.Assert.fail;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Random;
 import java.util.concurrent.ExecutorService;
@@ -37,15 +38,13 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hbase.ClusterStatus.Option;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.HColumnDescriptor;
 import org.apache.hadoop.hbase.HConstants;
-import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.HRegionLocation;
 import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.MiniHBaseCluster;
-import org.apache.hadoop.hbase.NotServingRegionException;
-import org.apache.hadoop.hbase.ProcedureInfo;
 import org.apache.hadoop.hbase.ServerName;
 import org.apache.hadoop.hbase.TableExistsException;
 import org.apache.hadoop.hbase.TableName;
@@ -55,11 +54,10 @@ import org.apache.hadoop.hbase.TableNotFoundException;
 import org.apache.hadoop.hbase.UnknownRegionException;
 import org.apache.hadoop.hbase.ZooKeeperConnectionException;
 import org.apache.hadoop.hbase.constraint.ConstraintException;
-import org.apache.hadoop.hbase.master.assignment.AssignmentManager;
 import org.apache.hadoop.hbase.master.HMaster;
+import org.apache.hadoop.hbase.master.assignment.AssignmentManager;
 import org.apache.hadoop.hbase.regionserver.HRegionServer;
 import org.apache.hadoop.hbase.regionserver.Region;
-import org.apache.hadoop.hbase.shaded.protobuf.ProtobufUtil;
 import org.apache.hadoop.hbase.testclassification.ClientTests;
 import org.apache.hadoop.hbase.testclassification.LargeTests;
 import org.apache.hadoop.hbase.util.Bytes;
@@ -69,11 +67,13 @@ import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.BeforeClass;
+import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
-import org.junit.Ignore;
 import org.junit.experimental.categories.Category;
 import org.junit.rules.TestName;
+
+import org.apache.hadoop.hbase.shaded.protobuf.ProtobufUtil;
 
 
 /**
@@ -316,10 +316,10 @@ public class TestAdmin2 {
     final TableName tableName = TableName.valueOf(name.getMethodName());
     createTableWithDefaultConf(tableName);
 
-    HRegionInfo info = null;
+    RegionInfo info = null;
     HRegionServer rs = TEST_UTIL.getRSForFirstRegionInTable(tableName);
-    List<HRegionInfo> onlineRegions = ProtobufUtil.getOnlineRegions(rs.getRSRpcServices());
-    for (HRegionInfo regionInfo : onlineRegions) {
+    List<RegionInfo> onlineRegions = ProtobufUtil.getOnlineRegions(rs.getRSRpcServices());
+    for (RegionInfo regionInfo : onlineRegions) {
       if (!regionInfo.getTable().isSystemTable()) {
         info = regionInfo;
         admin.unassign(regionInfo.getRegionName(), true);
@@ -344,10 +344,10 @@ public class TestAdmin2 {
     byte[] tableName = Bytes.toBytes(name);
     createTableWithDefaultConf(tableName);
 
-    HRegionInfo info = null;
+    RegionInfo info = null;
     HRegionServer rs = TEST_UTIL.getRSForFirstRegionInTable(TableName.valueOf(tableName));
-    List<HRegionInfo> onlineRegions = ProtobufUtil.getOnlineRegions(rs.getRSRpcServices());
-    for (HRegionInfo regionInfo : onlineRegions) {
+    List<RegionInfo> onlineRegions = ProtobufUtil.getOnlineRegions(rs.getRSRpcServices());
+    for (RegionInfo regionInfo : onlineRegions) {
       if (!regionInfo.isMetaTable()) {
         if (regionInfo.getRegionNameAsString().contains(name)) {
           info = regionInfo;
@@ -369,10 +369,10 @@ public class TestAdmin2 {
     final TableName tableName = TableName.valueOf(name.getMethodName());
     createTableWithDefaultConf(tableName);
 
-    HRegionInfo info = null;
+    RegionInfo info = null;
     HRegionServer rs = TEST_UTIL.getRSForFirstRegionInTable(tableName);
-    List<HRegionInfo> onlineRegions = ProtobufUtil.getOnlineRegions(rs.getRSRpcServices());
-    for (HRegionInfo regionInfo : onlineRegions) {
+    List<RegionInfo> onlineRegions = ProtobufUtil.getOnlineRegions(rs.getRSRpcServices());
+    for (RegionInfo regionInfo : onlineRegions) {
       if (!regionInfo.isMetaTable()) {
         if (regionInfo.getRegionNameAsString().contains("TestHBACloseRegion2")) {
           info = regionInfo;
@@ -436,7 +436,7 @@ public class TestAdmin2 {
     desc.addFamily(new HColumnDescriptor(HConstants.CATALOG_FAMILY));
     admin.createTable(desc, startKey, endKey, expectedRegions);
 
-    List<HRegionInfo> RegionInfos = admin.getTableRegions(tableName);
+    List<RegionInfo> RegionInfos = admin.getRegions(tableName);
 
     assertEquals("Tried to create " + expectedRegions + " regions " +
         "but only found " + RegionInfos.size(),
@@ -449,8 +449,8 @@ public class TestAdmin2 {
     HMaster master = cluster.getMaster();
     final TableName tableName = TableName.valueOf(name.getMethodName());
     Admin localAdmin = createTable(tableName);
-    List<HRegionInfo> tableRegions = localAdmin.getTableRegions(tableName);
-    HRegionInfo hri = tableRegions.get(0);
+    List<RegionInfo> tableRegions = localAdmin.getRegions(tableName);
+    RegionInfo hri = tableRegions.get(0);
     AssignmentManager am = master.getAssignmentManager();
     ServerName server = am.getRegionStates().getRegionServerOfRegion(hri);
     localAdmin.move(hri.getEncodedNameAsBytes(), Bytes.toBytes(server.getServerName()));
@@ -620,9 +620,9 @@ public class TestAdmin2 {
 
     try (RegionLocator locator = TEST_UTIL.getConnection().getRegionLocator(tableName)) {
       HRegionLocation regionLocation = locator.getRegionLocation(Bytes.toBytes("mmm"));
-      HRegionInfo region = regionLocation.getRegionInfo();
+      RegionInfo region = regionLocation.getRegionInfo();
       byte[] regionName = region.getRegionName();
-      Pair<HRegionInfo, ServerName> pair = rawAdmin.getRegion(regionName);
+      Pair<RegionInfo, ServerName> pair = rawAdmin.getRegion(regionName);
       assertTrue(Bytes.equals(regionName, pair.getFirst().getRegionName()));
       pair = rawAdmin.getRegion(region.getEncodedNameAsBytes());
       assertTrue(Bytes.equals(regionName, pair.getFirst().getRegionName()));
@@ -683,9 +683,15 @@ public class TestAdmin2 {
   }
 
   @Test(timeout = 300000)
-  public void testListProcedures() throws Exception {
-    ProcedureInfo[] procList = admin.listProcedures();
-    assertTrue(procList.length >= 0);
+  public void testGetProcedures() throws Exception {
+    String procList = admin.getProcedures();
+    assertTrue(procList.startsWith("["));
+  }
+
+  @Test(timeout = 300000)
+  public void testGetLocks() throws Exception {
+    String lockList = admin.getLocks();
+    assertTrue(lockList.startsWith("["));
   }
 
   /*
@@ -697,7 +703,8 @@ public class TestAdmin2 {
     assertTrue(drainingServers.isEmpty());
 
     // Drain all region servers.
-    Collection<ServerName> clusterServers = admin.getClusterStatus().getServers();
+    Collection<ServerName> clusterServers =
+        admin.getClusterStatus(EnumSet.of(Option.LIVE_SERVERS)).getServers();
     drainingServers = new ArrayList<>();
     for (ServerName server : clusterServers) {
       drainingServers.add(server);

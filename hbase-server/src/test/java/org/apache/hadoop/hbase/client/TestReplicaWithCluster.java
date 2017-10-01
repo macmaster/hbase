@@ -24,6 +24,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
@@ -46,6 +47,7 @@ import org.apache.hadoop.hbase.Waiter;
 
 import org.apache.hadoop.hbase.client.replication.ReplicationAdmin;
 import org.apache.hadoop.hbase.coprocessor.ObserverContext;
+import org.apache.hadoop.hbase.coprocessor.RegionCoprocessor;
 import org.apache.hadoop.hbase.coprocessor.RegionCoprocessorEnvironment;
 import org.apache.hadoop.hbase.coprocessor.RegionObserver;
 import org.apache.hadoop.hbase.ipc.RpcControllerFactory;
@@ -83,11 +85,16 @@ public class TestReplicaWithCluster {
   /**
    * This copro is used to synchronize the tests.
    */
-  public static class SlowMeCopro implements RegionObserver {
+  public static class SlowMeCopro implements RegionCoprocessor, RegionObserver {
     static final AtomicLong sleepTime = new AtomicLong(0);
     static final AtomicReference<CountDownLatch> cdl = new AtomicReference<>(new CountDownLatch(0));
 
     public SlowMeCopro() {
+    }
+
+    @Override
+    public Optional<RegionObserver> getRegionObserver() {
+      return Optional.of(this);
     }
 
     @Override
@@ -119,9 +126,14 @@ public class TestReplicaWithCluster {
   /**
    * This copro is used to simulate region server down exception for Get and Scan
    */
-  public static class RegionServerStoppedCopro implements RegionObserver {
+  public static class RegionServerStoppedCopro implements RegionCoprocessor, RegionObserver {
 
     public RegionServerStoppedCopro() {
+    }
+
+    @Override
+    public Optional<RegionObserver> getRegionObserver() {
+      return Optional.of(this);
     }
 
     @Override
@@ -134,7 +146,7 @@ public class TestReplicaWithCluster {
       if (e.getEnvironment().getRegion().getRegionInfo().getReplicaId() <= 1) {
         LOG.info("Throw Region Server Stopped Exceptoin for replica id " + replicaId);
         throw new RegionServerStoppedException("Server " +
-            e.getEnvironment().getRegionServerServices().getServerName()
+            e.getEnvironment().getCoprocessorRegionServerServices().getServerName()
             + " not running");
       } else {
         LOG.info("We're replica region " + replicaId);
@@ -151,7 +163,7 @@ public class TestReplicaWithCluster {
       if (e.getEnvironment().getRegion().getRegionInfo().getReplicaId() <= 1) {
         LOG.info("Throw Region Server Stopped Exceptoin for replica id " + replicaId);
         throw new RegionServerStoppedException("Server " +
-            e.getEnvironment().getRegionServerServices().getServerName()
+            e.getEnvironment().getCoprocessorRegionServerServices().getServerName()
             + " not running");
       } else {
         LOG.info("We're replica region " + replicaId);
@@ -164,9 +176,15 @@ public class TestReplicaWithCluster {
   /**
    * This copro is used to slow down the primary meta region scan a bit
    */
-  public static class RegionServerHostingPrimayMetaRegionSlowOrStopCopro implements RegionObserver {
+  public static class RegionServerHostingPrimayMetaRegionSlowOrStopCopro
+      implements RegionCoprocessor, RegionObserver {
     static boolean slowDownPrimaryMetaScan = false;
     static boolean throwException = false;
+
+    @Override
+    public Optional<RegionObserver> getRegionObserver() {
+      return Optional.of(this);
+    }
 
     @Override
     public void preGetOp(final ObserverContext<RegionCoprocessorEnvironment> e,
@@ -179,8 +197,9 @@ public class TestReplicaWithCluster {
         if (!e.getEnvironment().getRegion().getRegionInfo().isMetaRegion() && (replicaId == 0)) {
           LOG.info("Get, throw Region Server Stopped Exceptoin for region " + e.getEnvironment()
               .getRegion().getRegionInfo());
-          throw new RegionServerStoppedException("Server " +
-              e.getEnvironment().getRegionServerServices().getServerName() + " not running");
+          throw new RegionServerStoppedException(
+              "Server " + e.getEnvironment().getCoprocessorRegionServerServices().getServerName()
+                  + " not running");
         }
       } else {
         LOG.info("Get, We're replica region " + replicaId);
@@ -209,8 +228,9 @@ public class TestReplicaWithCluster {
           LOG.info("Scan, throw Region Server Stopped Exceptoin for replica " + e.getEnvironment()
               .getRegion().getRegionInfo());
 
-          throw new RegionServerStoppedException("Server " +
-              e.getEnvironment().getRegionServerServices().getServerName() + " not running");
+          throw new RegionServerStoppedException(
+              "Server " + e.getEnvironment().getCoprocessorRegionServerServices().getServerName()
+                  + " not running");
         } else {
           LOG.info("Scan, We're replica region " + replicaId);
         }
@@ -319,14 +339,14 @@ public class TestReplicaWithCluster {
     Assert.assertFalse(r.isStale());
 
     // Add a CF, it should work.
-    TableDescriptor bHdt = HTU.getAdmin().listTableDescriptor(td.getTableName());
+    TableDescriptor bHdt = HTU.getAdmin().getDescriptor(td.getTableName());
     td = TableDescriptorBuilder.newBuilder(td)
             .addColumnFamily(ColumnFamilyDescriptorBuilder.of(row))
             .build();
     HTU.getAdmin().disableTable(td.getTableName());
     HTU.getAdmin().modifyTable(td);
     HTU.getAdmin().enableTable(td.getTableName());
-    TableDescriptor nHdt = HTU.getAdmin().listTableDescriptor(td.getTableName());
+    TableDescriptor nHdt = HTU.getAdmin().getDescriptor(td.getTableName());
     Assert.assertEquals("fams=" + Arrays.toString(nHdt.getColumnFamilies()),
         bHdt.getColumnFamilyCount() + 1, nHdt.getColumnFamilyCount());
 
@@ -350,7 +370,7 @@ public class TestReplicaWithCluster {
     }
 
     Admin admin = HTU.getAdmin();
-    nHdt =admin.listTableDescriptor(td.getTableName());
+    nHdt =admin.getDescriptor(td.getTableName());
     Assert.assertEquals("fams=" + Arrays.toString(nHdt.getColumnFamilies()),
         bHdt.getColumnFamilyCount() + 1, nHdt.getColumnFamilyCount());
 

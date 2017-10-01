@@ -61,7 +61,6 @@ import org.apache.hadoop.hbase.shaded.com.google.protobuf.UnsafeByteOperations;
 import org.apache.hadoop.hbase.shaded.protobuf.ProtobufUtil;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.WALProtos;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.WALProtos.WALKey;
-import org.apache.hadoop.hbase.regionserver.wal.WALEdit;
 import org.apache.hadoop.hbase.testclassification.MediumTests;
 import org.apache.hadoop.hbase.testclassification.ReplicationTests;
 import org.apache.hadoop.hbase.util.Bytes;
@@ -301,7 +300,7 @@ public class TestReplicationSink {
     // 3. Create a BulkLoadDescriptor and a WALEdit
     Map<byte[], List<Path>> storeFiles = new HashMap<>(1);
     storeFiles.put(FAM_NAME1, p);
-    WALEdit edit = null;
+    org.apache.hadoop.hbase.wal.WALEdit edit = null;
     WALProtos.BulkLoadDescriptor loadDescriptor = null;
 
     try (Connection c = ConnectionFactory.createConnection(conf);
@@ -311,7 +310,8 @@ public class TestReplicationSink {
           ProtobufUtil.toBulkLoadDescriptor(TABLE_NAME1,
               UnsafeByteOperations.unsafeWrap(regionInfo.getEncodedNameAsBytes()),
               storeFiles, storeFilesSize, 1);
-      edit = WALEdit.createBulkLoadEvent(regionInfo, loadDescriptor);
+      edit = org.apache.hadoop.hbase.wal.WALEdit.createBulkLoadEvent(regionInfo,
+        loadDescriptor);
     }
     List<WALEntry> entries = new ArrayList<>(1);
 

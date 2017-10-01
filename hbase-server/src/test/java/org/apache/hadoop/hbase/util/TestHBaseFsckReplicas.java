@@ -17,22 +17,42 @@
  */
 package org.apache.hadoop.hbase.util;
 
+import static org.apache.hadoop.hbase.util.hbck.HbckTestingUtil.assertErrors;
+import static org.apache.hadoop.hbase.util.hbck.HbckTestingUtil.assertNoErrors;
+import static org.apache.hadoop.hbase.util.hbck.HbckTestingUtil.doFsck;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
+
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.EnumSet;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.NavigableMap;
+import java.util.Set;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.SynchronousQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+
+import org.apache.hadoop.hbase.ClusterStatus.Option;
 import org.apache.hadoop.hbase.HConstants;
-import org.apache.hadoop.hbase.HRegionInfo;
+import org.apache.hadoop.hbase.HRegionLocation;
 import org.apache.hadoop.hbase.MetaTableAccessor;
 import org.apache.hadoop.hbase.ServerName;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.ClusterConnection;
 import org.apache.hadoop.hbase.client.Delete;
+import org.apache.hadoop.hbase.client.HBaseAdmin;
 import org.apache.hadoop.hbase.client.Put;
+import org.apache.hadoop.hbase.client.RegionInfo;
 import org.apache.hadoop.hbase.client.RegionReplicaUtil;
 import org.apache.hadoop.hbase.client.Table;
-import org.apache.hadoop.hbase.client.HBaseAdmin;
-import org.apache.hadoop.hbase.HRegionLocation;
-
 import org.apache.hadoop.hbase.coprocessor.CoprocessorHost;
-import org.apache.hadoop.hbase.master.assignment.AssignmentManager;
 import org.apache.hadoop.hbase.master.RegionState;
+import org.apache.hadoop.hbase.master.assignment.AssignmentManager;
 import org.apache.hadoop.hbase.testclassification.LargeTests;
 import org.apache.hadoop.hbase.testclassification.MiscTests;
 import org.junit.AfterClass;
@@ -44,21 +64,6 @@ import org.junit.Test;
 import org.junit.experimental.categories.Category;
 import org.junit.rules.TestName;
 
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.NavigableMap;
-import java.util.Set;
-import java.util.concurrent.ScheduledThreadPoolExecutor;
-import java.util.concurrent.SynchronousQueue;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
-
-import static org.apache.hadoop.hbase.util.hbck.HbckTestingUtil.*;
-import static org.junit.Assert.*;
-
 @Ignore
 @Category({MiscTests.class, LargeTests.class})
 public class TestHBaseFsckReplicas extends BaseTestHBaseFsck {
@@ -68,7 +73,7 @@ public class TestHBaseFsckReplicas extends BaseTestHBaseFsck {
   @BeforeClass
   public static void setUpBeforeClass() throws Exception {
     TEST_UTIL.getConfiguration().set(CoprocessorHost.MASTER_COPROCESSOR_CONF_KEY,
-        MasterSyncObserver.class.getName());
+        MasterSyncCoprocessor.class.getName());
 
     conf.setInt("hbase.regionserver.handler.count", 2);
     conf.setInt("hbase.regionserver.metahandler.count", 30);
@@ -187,15 +192,15 @@ public class TestHBaseFsckReplicas extends BaseTestHBaseFsck {
       // for the master to treat the request for assignment as valid; the master
       // checks the region is valid either from its memory or meta)
       Table meta = connection.getTable(TableName.META_TABLE_NAME, tableExecutorService);
-      List<HRegionInfo> regions = admin.getTableRegions(tableName);
+      List<RegionInfo> regions = admin.getRegions(tableName);
       byte[] startKey = Bytes.toBytes("B");
       byte[] endKey = Bytes.toBytes("C");
       byte[] metaKey = null;
-      HRegionInfo newHri = null;
-      for (HRegionInfo h : regions) {
+      RegionInfo newHri = null;
+      for (RegionInfo h : regions) {
         if (Bytes.compareTo(h.getStartKey(), startKey) == 0  &&
             Bytes.compareTo(h.getEndKey(), endKey) == 0 &&
-            h.getReplicaId() == HRegionInfo.DEFAULT_REPLICA_ID) {
+            h.getReplicaId() == RegionInfo.DEFAULT_REPLICA_ID) {
           metaKey = h.getRegionName();
           //create a hri with replicaId as 2 (since we already have replicas with replicaid 0 and 1)
           newHri = RegionReplicaUtil.getRegionInfoForReplica(h, 2);
@@ -203,7 +208,7 @@ public class TestHBaseFsckReplicas extends BaseTestHBaseFsck {
         }
       }
       Put put = new Put(metaKey);
-      Collection<ServerName> var = admin.getClusterStatus().getServers();
+      Collection<ServerName> var = admin.getClusterStatus(EnumSet.of(Option.LIVE_SERVERS)).getServers();
       ServerName sn = var.toArray(new ServerName[var.size()])[0];
       //add a location with replicaId as 2 (since we already have replicas with replicaid 0 and 1)
       MetaTableAccessor.addLocation(put, sn, sn.getStartcode(), -1, 2);
@@ -239,15 +244,15 @@ public class TestHBaseFsckReplicas extends BaseTestHBaseFsck {
   public void testNotInHdfsWithReplicas() throws Exception {
     final TableName tableName = TableName.valueOf(name.getMethodName());
     try {
-      HRegionInfo[] oldHris = new HRegionInfo[2];
+      RegionInfo[] oldHris = new RegionInfo[2];
       setupTableWithRegionReplica(tableName, 2);
       assertEquals(ROWKEYS.length, countRows());
-      NavigableMap<HRegionInfo, ServerName> map =
+      NavigableMap<RegionInfo, ServerName> map =
           MetaTableAccessor.allTableRegions(TEST_UTIL.getConnection(),
               tbl.getName());
       int i = 0;
       // store the HRIs of the regions we will mess up
-      for (Map.Entry<HRegionInfo, ServerName> m : map.entrySet()) {
+      for (Map.Entry<RegionInfo, ServerName> m : map.entrySet()) {
         if (m.getKey().getStartKey().length > 0 &&
             m.getKey().getStartKey()[0] == Bytes.toBytes("B")[0]) {
           LOG.debug("Initially server hosting " + m.getKey() + " is " + m.getValue());
@@ -274,21 +279,22 @@ public class TestHBaseFsckReplicas extends BaseTestHBaseFsck {
       // the following code checks whether the old primary/secondary has
       // been unassigned and the new primary/secondary has been assigned
       i = 0;
-      HRegionInfo[] newHris = new HRegionInfo[2];
+      RegionInfo[] newHris = new RegionInfo[2];
       // get all table's regions from meta
       map = MetaTableAccessor.allTableRegions(TEST_UTIL.getConnection(), tbl.getName());
       // get the HRIs of the new regions (hbck created new regions for fixing the hdfs mess-up)
-      for (Map.Entry<HRegionInfo, ServerName> m : map.entrySet()) {
+      for (Map.Entry<RegionInfo, ServerName> m : map.entrySet()) {
         if (m.getKey().getStartKey().length > 0 &&
             m.getKey().getStartKey()[0] == Bytes.toBytes("B")[0]) {
           newHris[i++] = m.getKey();
         }
       }
       // get all the online regions in the regionservers
-      Collection<ServerName> servers = admin.getClusterStatus().getServers();
-      Set<HRegionInfo> onlineRegions = new HashSet<>();
+      Collection<ServerName> servers =
+          admin.getClusterStatus(EnumSet.of(Option.LIVE_SERVERS)).getServers();
+      Set<RegionInfo> onlineRegions = new HashSet<>();
       for (ServerName s : servers) {
-        List<HRegionInfo> list = admin.getOnlineRegions(s);
+        List<RegionInfo> list = admin.getRegions(s);
         onlineRegions.addAll(list);
       }
       // the new HRIs must be a subset of the online regions
@@ -322,7 +328,7 @@ public class TestHBaseFsckReplicas extends BaseTestHBaseFsck {
       admin.enableCatalogJanitor(false);
       meta = connection.getTable(TableName.META_TABLE_NAME, tableExecutorService);
       HRegionLocation loc = this.connection.getRegionLocation(table, SPLITS[0], false);
-      HRegionInfo hriParent = loc.getRegionInfo();
+      RegionInfo hriParent = loc.getRegionInfo();
 
       // Split Region A just before B
       this.connection.getAdmin().split(table, Bytes.toBytes("A@"));

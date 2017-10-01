@@ -19,13 +19,13 @@ package org.apache.hadoop.hbase.coprocessor;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.hbase.Cell;
 import org.apache.hadoop.hbase.CellUtil;
-import org.apache.hadoop.hbase.Coprocessor;
 import org.apache.hadoop.hbase.CoprocessorEnvironment;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.client.Scan;
@@ -47,14 +47,12 @@ import com.google.protobuf.Service;
  * response values.
  */
 public class ColumnAggregationEndpointNullResponse
-    extends
-    ColumnAggregationServiceNullResponse
-implements Coprocessor, CoprocessorService  {
+    extends ColumnAggregationServiceNullResponse implements RegionCoprocessor {
   private static final Log LOG = LogFactory.getLog(ColumnAggregationEndpointNullResponse.class);
   private RegionCoprocessorEnvironment env = null;
   @Override
-  public Service getService() {
-    return this;
+  public Iterable<Service> getServices() {
+    return Collections.singleton(this);
   }
 
   @Override

@@ -35,13 +35,14 @@ import javax.security.sasl.SaslException;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceAudience;
 import org.apache.hadoop.security.token.Token;
 import org.apache.hadoop.security.token.TokenIdentifier;
 
 /**
  * A utility class that encapsulates SASL logic for RPC client. Copied from
  * <code>org.apache.hadoop.security</code>
+ * @since 2.0.0
  */
 @InterfaceAudience.Private
 public abstract class AbstractHBaseSaslRpcClient {

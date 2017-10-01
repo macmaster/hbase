@@ -28,6 +28,7 @@ import java.io.IOException;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -39,7 +40,6 @@ import org.apache.hadoop.hbase.CellUtil;
 import org.apache.hadoop.hbase.Coprocessor;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.HColumnDescriptor;
-import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.KeyValue;
 import org.apache.hadoop.hbase.MiniHBaseCluster;
@@ -52,6 +52,7 @@ import org.apache.hadoop.hbase.client.Durability;
 import org.apache.hadoop.hbase.client.Get;
 import org.apache.hadoop.hbase.client.Increment;
 import org.apache.hadoop.hbase.client.Put;
+import org.apache.hadoop.hbase.client.RegionInfo;
 import org.apache.hadoop.hbase.client.RegionLocator;
 import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.client.ResultScanner;
@@ -63,7 +64,6 @@ import org.apache.hadoop.hbase.io.hfile.CacheConfig;
 import org.apache.hadoop.hbase.io.hfile.HFile;
 import org.apache.hadoop.hbase.io.hfile.HFileContext;
 import org.apache.hadoop.hbase.io.hfile.HFileContextBuilder;
-import org.apache.hadoop.hbase.mapreduce.LoadIncrementalHFiles;
 import org.apache.hadoop.hbase.regionserver.HRegion;
 import org.apache.hadoop.hbase.regionserver.InternalScanner;
 import org.apache.hadoop.hbase.regionserver.NoLimitScannerContext;
@@ -72,9 +72,10 @@ import org.apache.hadoop.hbase.regionserver.ScanType;
 import org.apache.hadoop.hbase.regionserver.ScannerContext;
 import org.apache.hadoop.hbase.regionserver.Store;
 import org.apache.hadoop.hbase.regionserver.StoreFile;
-import org.apache.hadoop.hbase.shaded.protobuf.ProtobufUtil;
+import org.apache.hadoop.hbase.regionserver.compactions.CompactionLifeCycleTracker;
 import org.apache.hadoop.hbase.testclassification.CoprocessorTests;
 import org.apache.hadoop.hbase.testclassification.MediumTests;
+import org.apache.hadoop.hbase.tool.LoadIncrementalHFiles;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.EnvironmentEdgeManager;
 import org.apache.hadoop.hbase.util.JVMClusterUtil;
@@ -85,6 +86,8 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
 import org.junit.rules.TestName;
+
+import org.apache.hadoop.hbase.shaded.protobuf.ProtobufUtil;
 
 @Category({ CoprocessorTests.class, MediumTests.class })
 public class TestRegionObserverInterface {
@@ -409,13 +412,18 @@ public class TestRegionObserverInterface {
   }
 
   /* Overrides compaction to only output rows with keys that are even numbers */
-  public static class EvenOnlyCompactor implements RegionObserver {
+  public static class EvenOnlyCompactor implements RegionCoprocessor, RegionObserver {
     long lastCompaction;
     long lastFlush;
 
     @Override
+    public Optional<RegionObserver> getRegionObserver() {
+      return Optional.of(this);
+    }
+
+    @Override
     public InternalScanner preCompact(ObserverContext<RegionCoprocessorEnvironment> e, Store store,
-        final InternalScanner scanner, final ScanType scanType) {
+        InternalScanner scanner, ScanType scanType, CompactionLifeCycleTracker tracker) {
       return new InternalScanner() {
         @Override
         public boolean next(List<Cell> results) throws IOException {
@@ -454,7 +462,7 @@ public class TestRegionObserverInterface {
 
     @Override
     public void postCompact(ObserverContext<RegionCoprocessorEnvironment> e, Store store,
-        StoreFile resultFile) {
+        StoreFile resultFile, CompactionLifeCycleTracker tracker) {
       lastCompaction = EnvironmentEdgeManager.currentTime();
     }
 
@@ -492,8 +500,7 @@ public class TestRegionObserverInterface {
     }
 
     HRegion firstRegion = cluster.getRegions(compactTable).get(0);
-    Coprocessor cp =
-        firstRegion.getCoprocessorHost().findCoprocessor(EvenOnlyCompactor.class.getName());
+    Coprocessor cp = firstRegion.getCoprocessorHost().findCoprocessor(EvenOnlyCompactor.class);
     assertNotNull("EvenOnlyCompactor coprocessor should be loaded", cp);
     EvenOnlyCompactor compactor = (EvenOnlyCompactor) cp;
 
@@ -654,14 +661,14 @@ public class TestRegionObserverInterface {
   }
 
   // check each region whether the coprocessor upcalls are called or not.
-  private void verifyMethodResult(Class<?> c, String methodName[], TableName tableName,
+  private void verifyMethodResult(Class<?> coprocessor, String methodName[], TableName tableName,
       Object value[]) throws IOException {
     try {
       for (JVMClusterUtil.RegionServerThread t : cluster.getRegionServerThreads()) {
         if (!t.isAlive() || t.getRegionServer().isAborted() || t.getRegionServer().isStopping()) {
           continue;
         }
-        for (HRegionInfo r : ProtobufUtil
+        for (RegionInfo r : ProtobufUtil
             .getOnlineRegions(t.getRegionServer().getRSRpcServices())) {
           if (!r.getTable().equals(tableName)) {
             continue;
@@ -669,14 +676,14 @@ public class TestRegionObserverInterface {
           RegionCoprocessorHost cph =
               t.getRegionServer().getOnlineRegion(r.getRegionName()).getCoprocessorHost();
 
-          Coprocessor cp = cph.findCoprocessor(c.getName());
+          Coprocessor cp = cph.findCoprocessor(coprocessor.getName());
           assertNotNull(cp);
           for (int i = 0; i < methodName.length; ++i) {
-            Method m = c.getMethod(methodName[i]);
+            Method m = coprocessor.getMethod(methodName[i]);
             Object o = m.invoke(cp);
-            assertTrue("Result of " + c.getName() + "." + methodName[i] + " is expected to be "
-                + value[i].toString() + ", while we get " + o.toString(),
-              o.equals(value[i]));
+            assertTrue("Result of " + coprocessor.getName() + "." + methodName[i]
+                    + " is expected to be " + value[i].toString() + ", while we get "
+                    + o.toString(), o.equals(value[i]));
           }
         }
       }

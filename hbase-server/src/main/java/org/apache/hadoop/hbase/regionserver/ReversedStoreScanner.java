@@ -22,12 +22,12 @@ import java.io.IOException;
 import java.util.List;
 import java.util.NavigableSet;
 
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
 import org.apache.hadoop.hbase.Cell;
 import org.apache.hadoop.hbase.CellComparator;
 import org.apache.hadoop.hbase.CellUtil;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.client.Scan;
+import org.apache.yetus.audience.InterfaceAudience;
 
 /**
  * ReversedStoreScanner extends from StoreScanner, and is used to support
@@ -46,18 +46,16 @@ class ReversedStoreScanner extends StoreScanner implements KeyValueScanner {
    * @param columns which columns we are scanning
    * @throws IOException
    */
-  ReversedStoreScanner(Store store, ScanInfo scanInfo, Scan scan,
+  ReversedStoreScanner(HStore store, ScanInfo scanInfo, Scan scan,
       NavigableSet<byte[]> columns, long readPt)
       throws IOException {
     super(store, scanInfo, scan, columns, readPt);
   }
 
   /** Constructor for testing. */
-  ReversedStoreScanner(final Scan scan, ScanInfo scanInfo, ScanType scanType,
-      final NavigableSet<byte[]> columns, final List<? extends KeyValueScanner> scanners)
-      throws IOException {
-    super(scan, scanInfo, scanType, columns, scanners,
-        HConstants.LATEST_TIMESTAMP);
+  ReversedStoreScanner(Scan scan, ScanInfo scanInfo, NavigableSet<byte[]> columns,
+      List<? extends KeyValueScanner> scanners) throws IOException {
+    super(scan, scanInfo, columns, scanners);
   }
 
   @Override

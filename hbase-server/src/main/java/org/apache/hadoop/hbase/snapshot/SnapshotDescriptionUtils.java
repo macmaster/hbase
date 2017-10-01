@@ -32,7 +32,7 @@ import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.permission.FsPermission;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.TableName;
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceAudience;
 import org.apache.hadoop.hbase.client.Admin;
 import org.apache.hadoop.hbase.client.Connection;
 import org.apache.hadoop.hbase.client.ConnectionFactory;
@@ -373,10 +373,10 @@ public final class SnapshotDescriptionUtils {
    * @return true if the user is the owner of the snapshot,
    *         false otherwise or the snapshot owner field is not present.
    */
-  public static boolean isSnapshotOwner(final SnapshotDescription snapshot, final User user) {
+  public static boolean isSnapshotOwner(org.apache.hadoop.hbase.client.SnapshotDescription snapshot,
+      User user) {
     if (user == null) return false;
-    if (!snapshot.hasOwner()) return false;
-    return snapshot.getOwner().equals(user.getShortName());
+    return user.getShortName().equals(snapshot.getOwner());
   }
 
   public static boolean isSecurityAvailable(Configuration conf) throws IOException {

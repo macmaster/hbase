@@ -18,7 +18,7 @@
  */
 package org.apache.hadoop.hbase.client;
 
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceAudience;
 
 import java.io.InterruptedIOException;
 import java.util.List;
@@ -28,7 +28,8 @@ import java.util.List;
  * 1) If AsyncProcess is set to track errors globally, and not per call (for HTable puts),
  *    then errors and failed operations in this object will reflect global errors.
  * 2) If submit call is made with needResults false, results will not be saved.
- *  */
+ * @since 2.0.0
+ */
 @InterfaceAudience.Private
 public interface AsyncRequestFuture {
   public boolean hasError();

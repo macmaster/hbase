@@ -32,7 +32,7 @@ import org.apache.hadoop.hbase.Cell;
 import org.apache.hadoop.hbase.CellComparator;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.MemoryCompactionPolicy;
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceAudience;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.ClassSize;
 import org.apache.hadoop.hbase.util.EnvironmentEdgeManager;
@@ -69,7 +69,7 @@ public class CompactingMemStore extends AbstractMemStore {
   private static final double IN_MEMORY_FLUSH_THRESHOLD_FACTOR_DEFAULT = 0.25;
 
   private static final Log LOG = LogFactory.getLog(CompactingMemStore.class);
-  private Store store;
+  private HStore store;
   private RegionServicesForStores regionServices;
   private CompactionPipeline pipeline;
   private MemStoreCompactor compactor;
@@ -341,7 +341,7 @@ public class CompactingMemStore extends AbstractMemStore {
     return store.getSmallestReadPoint();
   }
 
-  public Store getStore() {
+  public HStore getStore() {
     return store;
   }
 

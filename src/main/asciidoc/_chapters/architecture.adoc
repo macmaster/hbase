@@ -88,31 +88,10 @@ See the <<datamodel>> and the rest of this chapter for more information on how H
 
 The catalog table `hbase:meta` exists as an HBase table and is filtered out of the HBase shell's `list` command, but is in fact a table just like any other.
 
-[[arch.catalog.root]]
-=== -ROOT-
-
-NOTE: The `-ROOT-` table was removed in HBase 0.96.0.
-Information here should be considered historical.
-
-The `-ROOT-` table kept track of the location of the `.META` table (the previous name for the table now called `hbase:meta`) prior to HBase 0.96.
-The `-ROOT-` table structure was as follows:
-
-.Key
-
-* .META.
-  region key (`.META.,,1`)
-
-.Values
-
-* `info:regioninfo` (serialized link:http://hbase.apache.org/apidocs/org/apache/hadoop/hbase/HRegionInfo.html[HRegionInfo] instance of `hbase:meta`)
-* `info:server` (server:port of the RegionServer holding `hbase:meta`)
-* `info:serverstartcode` (start-time of the RegionServer process holding `hbase:meta`)
-
 [[arch.catalog.meta]]
 === hbase:meta
 
-The `hbase:meta` table (previously called `.META.`) keeps a list of all regions in the system.
-The location of `hbase:meta` was previously tracked within the `-ROOT-` table, but is now stored in ZooKeeper.
+The `hbase:meta` table (previously called `.META.`) keeps a list of all regions in the system, and the location of `hbase:meta` is stored in ZooKeeper.
 
 The `hbase:meta` table structure is as follows:
 
@@ -238,7 +217,7 @@ Please use link:http://hbase.apache.org/apidocs/org/apache/hadoop/hbase/client/C
 
 In HBase 1.0 and later, link:http://hbase.apache.org/devapidocs/org/apache/hadoop/hbase/client/HTable.html[HTable] is deprecated in favor of link:http://hbase.apache.org/apidocs/org/apache/hadoop/hbase/client/Table.html[Table]. `Table` does not use autoflush. To do buffered writes, use the BufferedMutator class.
 
-Before a `Table` or `HTable` instance is discarded, invoke either `close()` or `flushCommits()`, so `Put`s will not be lost.
+In HBase 2.0 and later, link:http://hbase.apache.org/devapidocs/org/apache/hadoop/hbase/client/HTable.html[HTable] does not use BufferedMutator to execute the ``Put`` operation. Refer to link:https://issues.apache.org/jira/browse/HBASE-18500[HBASE-18500] for more information.
 
 For additional information on write durability, review the link:/acid-semantics.html[ACID semantics] page.
 
@@ -307,14 +286,14 @@ FilterList list = new FilterList(FilterList.Operator.MUST_PASS_ONE);
 SingleColumnValueFilter filter1 = new SingleColumnValueFilter(
   cf,
   column,
-  CompareOp.EQUAL,
+  CompareOperator.EQUAL,
   Bytes.toBytes("my value")
   );
 list.add(filter1);
 SingleColumnValueFilter filter2 = new SingleColumnValueFilter(
   cf,
   column,
-  CompareOp.EQUAL,
+  CompareOperator.EQUAL,
   Bytes.toBytes("my other value")
   );
 list.add(filter2);
@@ -329,8 +308,8 @@ scan.setFilter(list);
 
 A SingleColumnValueFilter (see:
 http://hbase.apache.org/apidocs/org/apache/hadoop/hbase/filter/SingleColumnValueFilter.html)
-can be used to test column values for equivalence (`CompareOp.EQUAL`),
-inequality (`CompareOp.NOT_EQUAL`), or ranges (e.g., `CompareOp.GREATER`). The following is an
+can be used to test column values for equivalence (`CompareOperaor.EQUAL`),
+inequality (`CompareOperaor.NOT_EQUAL`), or ranges (e.g., `CompareOperaor.GREATER`). The following is an
 example of testing equivalence of a column to a String value "my value"...
 
 [source,java]
@@ -338,7 +317,7 @@ example of testing equivalence of a column to a String value "my value"...
 SingleColumnValueFilter filter = new SingleColumnValueFilter(
   cf,
   column,
-  CompareOp.EQUAL,
+  CompareOperaor.EQUAL,
   Bytes.toBytes("my value")
   );
 scan.setFilter(filter);
@@ -361,7 +340,7 @@ RegexStringComparator comp = new RegexStringComparator("my.");   // any value th
 SingleColumnValueFilter filter = new SingleColumnValueFilter(
   cf,
   column,
-  CompareOp.EQUAL,
+  CompareOperaor.EQUAL,
   comp
   );
 scan.setFilter(filter);
@@ -382,7 +361,7 @@ SubstringComparator comp = new SubstringComparator("y val");   // looking for 'm
 SingleColumnValueFilter filter = new SingleColumnValueFilter(
   cf,
   column,
-  CompareOp.EQUAL,
+  CompareOperaor.EQUAL,
   comp
   );
 scan.setFilter(filter);
@@ -580,7 +559,7 @@ See <<regions.arch.assignment>> for more information on region assignment.
 ==== CatalogJanitor
 
 Periodically checks and cleans up the `hbase:meta` table.
-See <arch.catalog.meta>> for more information on the meta table.
+See <<arch.catalog.meta>> for more information on the meta table.
 
 [[regionserver.arch]]
 == RegionServer
@@ -730,9 +709,9 @@ Your data is not the only resident of the block cache.
 Here are others that you may have to take into account:
 
 Catalog Tables::
-  The `-ROOT-` (prior to HBase 0.96, see <<arch.catalog.root,arch.catalog.root>>) and `hbase:meta` tables are forced into the block cache and have the in-memory priority which means that they are harder to evict.
-  The former never uses more than a few hundred bytes while the latter can occupy a few MBs
-  (depending on the number of regions).
+  The `hbase:meta` table is forced into the block cache and have the in-memory priority which means that they are harder to evict.
+
+NOTE: The hbase:meta tables can occupy a few MBs depending on the number of regions.
 
 HFiles Indexes::
   An _HFile_ is the file format that HBase uses to store data in HDFS.

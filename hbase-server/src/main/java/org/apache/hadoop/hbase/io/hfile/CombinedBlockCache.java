@@ -20,7 +20,7 @@ package org.apache.hadoop.hbase.io.hfile;
 
 import java.util.Iterator;
 
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceAudience;
 import org.apache.hadoop.hbase.io.HeapSize;
 import org.apache.hadoop.hbase.io.hfile.BlockType.BlockCategory;
 import org.apache.hadoop.hbase.io.hfile.bucket.BucketCache;
@@ -111,6 +111,11 @@ public class CombinedBlockCache implements ResizableBlockCache, HeapSize {
   @Override
   public long size() {
     return lruCache.size() + l2Cache.size();
+  }
+
+  @Override
+  public long getMaxSize() {
+    return lruCache.getMaxSize() + l2Cache.getMaxSize();
   }
 
   @Override

@@ -22,13 +22,14 @@ import java.util.concurrent.ThreadPoolExecutor;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.CompatibilityFactory;
 import org.apache.hadoop.hbase.ServerName;
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
 import org.apache.hadoop.hbase.metrics.Interns;
 import org.apache.hadoop.hbase.shaded.com.google.protobuf.Descriptors.MethodDescriptor;
 import org.apache.hadoop.hbase.shaded.com.google.protobuf.Message;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.metrics2.MetricsRecordBuilder;
 import org.apache.hadoop.metrics2.lib.MutableMetric;
+
+import org.apache.yetus.audience.InterfaceAudience;
 
 /**
  * This class is for maintaining the various connection statistics.
@@ -47,7 +48,6 @@ public class MetricsConnection implements StatisticTrackable {
 
   protected final Configuration config;
   protected final MetricsClientSource source;
-
   private final String POOL_EXECUTOR_ACTIVE_KEY = "executorPoolActiveThreads";
   private final String POOL_EXECUTOR_ACTIVE_DESC = "number of active threads in the executor pool";
   private final String POOL_META_ACTIVE_KEY = "metaPoolActiveThreads";
@@ -82,7 +82,6 @@ public class MetricsConnection implements StatisticTrackable {
         }
       });
     }
-
   }
 
   public void shutdown() {
@@ -109,7 +108,17 @@ public class MetricsConnection implements StatisticTrackable {
     source.incrMetaCacheNumClearRegion();
   }
 
-  /** Increment the count of normal runners. */
+  /** Increment the number of hedged read that have occurred. */
+  public void incrHedgedReadOps() {
+    source.incrHedgedReadOps();
+  }
+
+  /** Increment the number of hedged read returned faster than the original read. */
+  public void incrHedgedReadWin() {
+    hedgedReadWin.inc();
+  }
+
+  /** Increment the number of normal runner counts. */
   public void incrNormalRunners() {
     source.incrNormalRunners();
   }

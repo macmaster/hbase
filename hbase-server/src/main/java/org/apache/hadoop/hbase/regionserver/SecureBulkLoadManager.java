@@ -29,10 +29,13 @@ import org.apache.hadoop.fs.permission.FsPermission;
 import org.apache.hadoop.hbase.DoNotRetryIOException;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.TableName;
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
+import org.apache.hadoop.hbase.shaded.protobuf.ProtobufUtil;
+import org.apache.yetus.audience.InterfaceAudience;
 import org.apache.hadoop.hbase.client.Connection;
 import org.apache.hadoop.hbase.coprocessor.BulkLoadObserver;
+import org.apache.hadoop.hbase.coprocessor.CoprocessorHost;
 import org.apache.hadoop.hbase.coprocessor.ObserverContext;
+import org.apache.hadoop.hbase.coprocessor.RegionCoprocessor;
 import org.apache.hadoop.hbase.coprocessor.RegionCoprocessorEnvironment;
 import org.apache.hadoop.hbase.ipc.RpcServer;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.ClientProtos;
@@ -137,40 +140,25 @@ public class SecureBulkLoadManager {
 
   public String prepareBulkLoad(final Region region, final PrepareBulkLoadRequest request)
       throws IOException {
-    List<BulkLoadObserver> bulkLoadObservers = getBulkLoadObservers(region);
+    region.getCoprocessorHost().prePrepareBulkLoad(getActiveUser());
 
-    if (bulkLoadObservers != null && bulkLoadObservers.size() != 0) {
-      ObserverContext<RegionCoprocessorEnvironment> ctx = new ObserverContext<>(getActiveUser());
-      ctx.prepare((RegionCoprocessorEnvironment) region.getCoprocessorHost()
-          .findCoprocessorEnvironment(BulkLoadObserver.class).get(0));
-
-      for (BulkLoadObserver bulkLoadObserver : bulkLoadObservers) {
-        bulkLoadObserver.prePrepareBulkLoad(ctx, request);
-      }
-    }
-
-    String bulkToken =
-        createStagingDir(baseStagingDir, getActiveUser(), region.getTableDescriptor().getTableName())
-            .toString();
+    String bulkToken = createStagingDir(baseStagingDir, getActiveUser(),
+        region.getTableDescriptor().getTableName()).toString();
 
     return bulkToken;
   }
 
   public void cleanupBulkLoad(final Region region, final CleanupBulkLoadRequest request)
       throws IOException {
-    List<BulkLoadObserver> bulkLoadObservers = getBulkLoadObservers(region);
+    region.getCoprocessorHost().preCleanupBulkLoad(getActiveUser());
 
-    if (bulkLoadObservers != null && bulkLoadObservers.size() != 0) {
-      ObserverContext<RegionCoprocessorEnvironment> ctx = new ObserverContext<>(getActiveUser());
-      ctx.prepare((RegionCoprocessorEnvironment) region.getCoprocessorHost()
-        .findCoprocessorEnvironment(BulkLoadObserver.class).get(0));
-
-      for (BulkLoadObserver bulkLoadObserver : bulkLoadObservers) {
-        bulkLoadObserver.preCleanupBulkLoad(ctx, request);
+    Path path = new Path(request.getBulkToken());
+    if (!fs.delete(path, true)) {
+      if (fs.exists(path)) {
+        throw new IOException("Failed to clean up " + path);
       }
     }
-
-    fs.delete(new Path(request.getBulkToken()), true);
+    LOG.info("Cleaned up " + path + " successfully.");
   }
 
   public Map<byte[], List<Path>> secureBulkLoadHFiles(final Region region,
@@ -266,13 +254,6 @@ public class SecureBulkLoadManager {
       }
     }
     return map;
-  }
-
-  private List<BulkLoadObserver> getBulkLoadObservers(Region region) {
-    List<BulkLoadObserver> coprocessorList =
-        region.getCoprocessorHost().findCoprocessors(BulkLoadObserver.class);
-
-    return coprocessorList;
   }
 
   private Path createStagingDir(Path baseDir,

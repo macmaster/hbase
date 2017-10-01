@@ -22,11 +22,11 @@ import java.io.IOException;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.CoprocessorEnvironment;
 import org.apache.hadoop.hbase.ServerName;
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
-import org.apache.hadoop.hbase.classification.InterfaceStability;
+import org.apache.yetus.audience.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceStability;
 import org.apache.hadoop.hbase.coprocessor.RegionCoprocessorEnvironment;
+import org.apache.hadoop.hbase.regionserver.CoprocessorRegionServerServices;
 import org.apache.hadoop.hbase.regionserver.HRegionServer;
-import org.apache.hadoop.hbase.regionserver.RegionServerServices;
 import org.apache.hadoop.hbase.security.UserProvider;
 
 /**
@@ -54,7 +54,7 @@ public class CoprocessorHConnection extends ConnectionImplementation {
     // this bit is a little hacky - just trying to get it going for the moment
     if (env instanceof RegionCoprocessorEnvironment) {
       RegionCoprocessorEnvironment e = (RegionCoprocessorEnvironment) env;
-      RegionServerServices services = e.getRegionServerServices();
+      CoprocessorRegionServerServices services = e.getCoprocessorRegionServerServices();
       if (services instanceof HRegionServer) {
         return new CoprocessorHConnection((HRegionServer) services);
       }

@@ -19,16 +19,14 @@
 package org.apache.hadoop.hbase.procedure2;
 
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
-import org.apache.hadoop.hbase.classification.InterfaceStability;
+import org.apache.yetus.audience.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceStability;
 import org.apache.hadoop.hbase.exceptions.TimeoutIOException;
 import org.apache.hadoop.hbase.metrics.Counter;
 import org.apache.hadoop.hbase.metrics.Histogram;
@@ -165,17 +163,17 @@ public abstract class Procedure<TEnvironment> implements Comparable<Procedure<TE
    * The user-level code of the procedure may have some state to
    * persist (e.g. input arguments or current position in the processing state) to
    * be able to resume on failure.
-   * @param stream the stream that will contain the user serialized data
+   * @param serializer stores the serializable state
    */
-  protected abstract void serializeStateData(final OutputStream stream)
+  protected abstract void serializeStateData(final ProcedureStateSerializer serializer)
     throws IOException;
 
   /**
    * Called on store load to allow the user to decode the previously serialized
    * state.
-   * @param stream the stream that contains the user serialized data
+   * @param serializer contains the serialized state
    */
-  protected abstract void deserializeStateData(final InputStream stream)
+  protected abstract void deserializeStateData(final ProcedureStateSerializer serializer)
     throws IOException;
 
   /**
@@ -184,7 +182,7 @@ public abstract class Procedure<TEnvironment> implements Comparable<Procedure<TE
    * Framework will call this method just before it invokes {@link #execute(Object)}.
    * It calls {@link #releaseLock(Object)} after the call to execute.
    *
-   * <p>If you need to hold the lock for the life of the Procdure -- i.e. you do not
+   * <p>If you need to hold the lock for the life of the Procedure -- i.e. you do not
    * want any other Procedure interfering while this Procedure is running, see
    * {@link #holdLock(Object)}.
    *

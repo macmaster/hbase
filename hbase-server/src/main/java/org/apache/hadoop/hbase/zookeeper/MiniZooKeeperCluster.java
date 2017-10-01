@@ -34,7 +34,7 @@ import java.util.Random;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceAudience;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.zookeeper.server.NIOServerCnxnFactory;
@@ -225,13 +225,16 @@ public class MiniZooKeeperCluster {
       }
 
       ZooKeeperServer server = new ZooKeeperServer(dir, dir, tickTimeToUse);
+      // Setting {min,max}SessionTimeout defaults to be the same as in Zookeeper
+      server.setMinSessionTimeout(configuration.getInt("hbase.zookeeper.property.minSessionTimeout", -1));
+      server.setMaxSessionTimeout(configuration.getInt("hbase.zookeeper.property.maxSessionTimeout", -1));
       NIOServerCnxnFactory standaloneServerFactory;
       while (true) {
         try {
           standaloneServerFactory = new NIOServerCnxnFactory();
           standaloneServerFactory.configure(
             new InetSocketAddress(currentClientPort),
-            configuration.getInt(HConstants.ZOOKEEPER_MAX_CLIENT_CNXNS, 1000));
+            configuration.getInt(HConstants.ZOOKEEPER_MAX_CLIENT_CNXNS, HConstants.DEFAULT_ZOOKEPER_MAX_CLIENT_CNXNS));
         } catch (BindException e) {
           LOG.debug("Failed binding ZK Server to client port: " +
               currentClientPort, e);

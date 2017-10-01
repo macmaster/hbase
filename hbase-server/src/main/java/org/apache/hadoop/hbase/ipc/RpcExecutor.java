@@ -26,14 +26,14 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.LongAdder;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.Abortable;
 import org.apache.hadoop.hbase.HConstants;
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceAudience;
 import org.apache.hadoop.hbase.monitoring.MonitoredRPCHandler;
 import org.apache.hadoop.hbase.util.BoundedPriorityBlockingQueue;
 import org.apache.hadoop.hbase.util.ReflectionUtils;
@@ -76,8 +76,8 @@ public abstract class RpcExecutor {
   public static final int CALL_QUEUE_CODEL_DEFAULT_INTERVAL = 100;
   public static final double CALL_QUEUE_CODEL_DEFAULT_LIFO_THRESHOLD = 0.8;
 
-  private AtomicLong numGeneralCallsDropped = new AtomicLong();
-  private AtomicLong numLifoModeSwitches = new AtomicLong();
+  private LongAdder numGeneralCallsDropped = new LongAdder();
+  private LongAdder numLifoModeSwitches = new LongAdder();
 
   protected final int numCallQueues;
   protected final List<BlockingQueue<CallRunner>> queues;
@@ -112,7 +112,7 @@ public abstract class RpcExecutor {
     this.conf = conf;
     this.abortable = abortable;
 
-    float callQueuesHandlersFactor = this.conf.getFloat(CALL_QUEUE_HANDLER_FACTOR_CONF_KEY, 0);
+    float callQueuesHandlersFactor = this.conf.getFloat(CALL_QUEUE_HANDLER_FACTOR_CONF_KEY, 0.1f);
     this.numCallQueues = computeNumCallQueues(handlerCount, callQueuesHandlersFactor);
     this.queues = new ArrayList<>(this.numCallQueues);
 
@@ -385,11 +385,11 @@ public abstract class RpcExecutor {
   }
 
   public long getNumGeneralCallsDropped() {
-    return numGeneralCallsDropped.get();
+    return numGeneralCallsDropped.longValue();
   }
 
   public long getNumLifoModeSwitches() {
-    return numLifoModeSwitches.get();
+    return numLifoModeSwitches.longValue();
   }
 
   public int getActiveHandlerCount() {

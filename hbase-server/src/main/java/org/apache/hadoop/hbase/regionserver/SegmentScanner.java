@@ -22,11 +22,11 @@ import java.io.IOException;
 import java.util.Iterator;
 import java.util.SortedSet;
 
-import org.apache.commons.lang.NotImplementedException;
+import org.apache.commons.lang3.NotImplementedException;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.Cell;
 import org.apache.hadoop.hbase.CellUtil;
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceAudience;
 import org.apache.hadoop.hbase.client.Scan;
 
 /**
@@ -279,8 +279,9 @@ public class SegmentScanner implements KeyValueScanner {
    * overridden method
    */
   @Override
-  public boolean shouldUseScanner(Scan scan, Store store, long oldestUnexpiredTS) {
-    return getSegment().shouldSeek(scan,oldestUnexpiredTS);
+  public boolean shouldUseScanner(Scan scan, HStore store, long oldestUnexpiredTS) {
+    return getSegment().shouldSeek(scan.getColumnFamilyTimeRange()
+            .getOrDefault(store.getColumnFamilyDescriptor().getName(), scan.getTimeRange()), oldestUnexpiredTS);
   }
 
   @Override

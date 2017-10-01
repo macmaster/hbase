@@ -27,7 +27,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceAudience;
 import org.apache.hadoop.hbase.client.Durability;
 import org.apache.hadoop.hbase.client.TableDescriptor;
 import org.apache.hadoop.hbase.client.TableDescriptorBuilder;
@@ -495,13 +495,10 @@ public class HTableDescriptor implements TableDescriptor, Comparable<HTableDescr
     if (this == obj) {
       return true;
     }
-    if (obj == null) {
-      return false;
+    if (obj instanceof HTableDescriptor) {
+      return delegatee.equals(((HTableDescriptor) obj).delegatee);
     }
-    if (!(obj instanceof HTableDescriptor)) {
-      return false;
-    }
-    return compareTo((HTableDescriptor)obj) == 0;
+    return false;
   }
 
   /**
@@ -523,7 +520,7 @@ public class HTableDescriptor implements TableDescriptor, Comparable<HTableDescr
    */
   @Override
   public int compareTo(final HTableDescriptor other) {
-    return delegatee.compareTo(other.delegatee);
+    return TableDescriptor.COMPARATOR.compare(this, other);
   }
 
   /**
@@ -684,8 +681,7 @@ public class HTableDescriptor implements TableDescriptor, Comparable<HTableDescr
 
   /**
    * Add a table coprocessor to this table. The coprocessor
-   * type must be org.apache.hadoop.hbase.coprocessor.RegionObserver
-   * or Endpoint.
+   * type must be org.apache.hadoop.hbase.coprocessor.RegionCoprocessor.
    * It won't check if the class can be loaded or not.
    * Whether a coprocessor is loadable or not will be determined when
    * a region is opened.
@@ -699,8 +695,7 @@ public class HTableDescriptor implements TableDescriptor, Comparable<HTableDescr
 
   /**
    * Add a table coprocessor to this table. The coprocessor
-   * type must be org.apache.hadoop.hbase.coprocessor.RegionObserver
-   * or Endpoint.
+   * type must be org.apache.hadoop.hbase.coprocessor.RegionCoprocessor.
    * It won't check if the class can be loaded or not.
    * Whether a coprocessor is loadable or not will be determined when
    * a region is opened.
@@ -720,8 +715,7 @@ public class HTableDescriptor implements TableDescriptor, Comparable<HTableDescr
 
   /**
    * Add a table coprocessor to this table. The coprocessor
-   * type must be org.apache.hadoop.hbase.coprocessor.RegionObserver
-   * or Endpoint.
+   * type must be org.apache.hadoop.hbase.coprocessor.RegionCoprocessor.
    * It won't check if the class can be loaded or not.
    * Whether a coprocessor is loadable or not will be determined when
    * a region is opened.
@@ -818,17 +812,19 @@ public class HTableDescriptor implements TableDescriptor, Comparable<HTableDescr
   /**
    * Getter for accessing the configuration value by key
    */
-  @Override
   public String getConfigurationValue(String key) {
-    return delegatee.getConfigurationValue(key);
+    return delegatee.getValue(key);
   }
 
   /**
    * Getter for fetching an unmodifiable map.
    */
-  @Override
   public Map<String, String> getConfiguration() {
-    return delegatee.getConfiguration();
+    return delegatee.getValues().entrySet().stream()
+            .collect(Collectors.toMap(
+                    e -> Bytes.toString(e.getKey().get(), e.getKey().getOffset(), e.getKey().getLength()),
+                    e -> Bytes.toString(e.getValue().get(), e.getValue().getOffset(), e.getValue().getLength())
+            ));
   }
 
   /**
@@ -837,7 +833,7 @@ public class HTableDescriptor implements TableDescriptor, Comparable<HTableDescr
    * @param value String value. If null, removes the setting.
    */
   public HTableDescriptor setConfiguration(String key, String value) {
-    getDelegateeForModification().setConfiguration(key, value);
+    getDelegateeForModification().setValue(key, value);
     return this;
   }
 
@@ -845,7 +841,7 @@ public class HTableDescriptor implements TableDescriptor, Comparable<HTableDescr
    * Remove a config setting represented by the key from the map
    */
   public void removeConfiguration(final String key) {
-    getDelegateeForModification().removeConfiguration(key);
+    getDelegateeForModification().removeValue(Bytes.toBytes(key));
   }
 
   @Override

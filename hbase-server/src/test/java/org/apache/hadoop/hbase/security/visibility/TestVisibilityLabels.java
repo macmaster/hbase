@@ -62,9 +62,9 @@ import org.apache.hadoop.hbase.protobuf.generated.VisibilityLabelsProtos.Visibil
 import org.apache.hadoop.hbase.regionserver.BloomType;
 import org.apache.hadoop.hbase.regionserver.HRegion;
 import org.apache.hadoop.hbase.regionserver.HRegionServer;
+import org.apache.hadoop.hbase.regionserver.HStore;
+import org.apache.hadoop.hbase.regionserver.HStoreFile;
 import org.apache.hadoop.hbase.regionserver.Region;
-import org.apache.hadoop.hbase.regionserver.Store;
-import org.apache.hadoop.hbase.regionserver.StoreFile;
 import org.apache.hadoop.hbase.security.User;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.JVMClusterUtil.RegionServerThread;
@@ -307,7 +307,7 @@ public abstract class TestVisibilityLabels {
         List<RegionServerThread> regionServerThreads = TEST_UTIL.getHBaseCluster()
             .getRegionServerThreads();
         for (RegionServerThread rsThread : regionServerThreads) {
-          List<Region> onlineRegions = rsThread.getRegionServer().getOnlineRegions(
+          List<Region> onlineRegions = rsThread.getRegionServer().getRegions(
               LABELS_TABLE_NAME);
           if (onlineRegions.size() > 0) {
             rsThread.getRegionServer().abort("Aborting ");
@@ -341,7 +341,7 @@ public abstract class TestVisibilityLabels {
     for (RegionServerThread rsThread : regionServerThreads) {
       while (true) {
         if (!rsThread.getRegionServer().isAborted()) {
-          List<Region> onlineRegions = rsThread.getRegionServer().getOnlineRegions(
+          List<Region> onlineRegions = rsThread.getRegionServer().getRegions(
               LABELS_TABLE_NAME);
           if (onlineRegions.size() > 0) {
             break;
@@ -392,13 +392,13 @@ public abstract class TestVisibilityLabels {
       } catch (InterruptedException e) {
       }
     }
-    while (regionServer.getOnlineRegions(LABELS_TABLE_NAME).isEmpty()) {
+    while (regionServer.getRegions(LABELS_TABLE_NAME).isEmpty()) {
       try {
         Thread.sleep(10);
       } catch (InterruptedException e) {
       }
     }
-    Region labelsTableRegion = regionServer.getOnlineRegions(LABELS_TABLE_NAME).get(0);
+    Region labelsTableRegion = regionServer.getRegions(LABELS_TABLE_NAME).get(0);
     while (labelsTableRegion.isRecovering()) {
       try {
         Thread.sleep(10);
@@ -843,10 +843,10 @@ public abstract class TestVisibilityLabels {
     }
     TEST_UTIL.getAdmin().flush(tableName);
     List<HRegion> regions = TEST_UTIL.getHBaseCluster().getRegions(tableName);
-    Store store = regions.get(0).getStore(fam);
-    Collection<StoreFile> storefiles = store.getStorefiles();
+    HStore store = regions.get(0).getStore(fam);
+    Collection<HStoreFile> storefiles = store.getStorefiles();
     assertTrue(storefiles.size() > 0);
-    for (StoreFile storeFile : storefiles) {
+    for (HStoreFile storeFile : storefiles) {
       assertTrue(storeFile.getReader().getHFileReader().getFileContext().isIncludesTags());
     }
   }

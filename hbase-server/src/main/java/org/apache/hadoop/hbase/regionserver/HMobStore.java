@@ -34,17 +34,15 @@ import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.ArrayBackedTag;
 import org.apache.hadoop.hbase.Cell;
+import org.apache.hadoop.hbase.CellBuilderType;
 import org.apache.hadoop.hbase.CellComparator;
 import org.apache.hadoop.hbase.DoNotRetryIOException;
-import org.apache.hadoop.hbase.HColumnDescriptor;
+import org.apache.hadoop.hbase.ExtendedCellBuilderFactory;
 import org.apache.hadoop.hbase.HConstants;
-import org.apache.hadoop.hbase.KeyValue;
-import org.apache.hadoop.hbase.KeyValue.Type;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.Tag;
 import org.apache.hadoop.hbase.TagType;
 import org.apache.hadoop.hbase.TagUtil;
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
 import org.apache.hadoop.hbase.client.ColumnFamilyDescriptor;
 import org.apache.hadoop.hbase.client.Scan;
 import org.apache.hadoop.hbase.filter.Filter;
@@ -60,6 +58,7 @@ import org.apache.hadoop.hbase.mob.MobUtils;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.HFileArchiveUtil;
 import org.apache.hadoop.hbase.util.IdLock;
+import org.apache.yetus.audience.InterfaceAudience;
 
 /**
  * The store implementation to save MOBs (medium objects), it extends the HStore.
@@ -167,7 +166,7 @@ public class HMobStore extends HStore {
    * Creates the mob store engine.
    */
   @Override
-  protected StoreEngine<?, ?, ?, ?> createStoreEngine(Store store, Configuration conf,
+  protected StoreEngine<?, ?, ?, ?> createStoreEngine(HStore store, Configuration conf,
       CellComparator cellComparator) throws IOException {
     MobStoreEngine engine = new MobStoreEngine();
     engine.createComponents(conf, store, cellComparator);
@@ -292,7 +291,7 @@ public class HMobStore extends HStore {
    * @param path the path to the mob file
    */
   private void validateMobFile(Path path) throws IOException {
-    StoreFile storeFile = null;
+    HStoreFile storeFile = null;
     try {
       storeFile = new HStoreFile(region.getFilesystem(), path, conf, this.mobCacheConfig,
           BloomType.NONE, isPrimaryReplicaStore());
@@ -302,7 +301,7 @@ public class HMobStore extends HStore {
       throw e;
     } finally {
       if (storeFile != null) {
-        storeFile.closeReader(false);
+        storeFile.closeStoreFile(false);
       }
     }
   }
@@ -359,15 +358,17 @@ public class HMobStore extends HStore {
       }
     }
     if (result == null) {
-      LOG.warn("The KeyValue result is null, assemble a new KeyValue with the same row,family,"
+      LOG.warn("The Cell result is null, assemble a new Cell with the same row,family,"
           + "qualifier,timestamp,type and tags but with an empty value to return.");
-      result = new KeyValue(reference.getRowArray(), reference.getRowOffset(),
-          reference.getRowLength(), reference.getFamilyArray(), reference.getFamilyOffset(),
-          reference.getFamilyLength(), reference.getQualifierArray(),
-          reference.getQualifierOffset(), reference.getQualifierLength(), reference.getTimestamp(),
-          Type.codeToType(reference.getTypeByte()), HConstants.EMPTY_BYTE_ARRAY,
-          0, 0, reference.getTagsArray(), reference.getTagsOffset(),
-          reference.getTagsLength());
+      result = ExtendedCellBuilderFactory.create(CellBuilderType.DEEP_COPY)
+              .setRow(reference.getRowArray(), reference.getRowOffset(), reference.getRowLength())
+              .setFamily(reference.getFamilyArray(), reference.getFamilyOffset(), reference.getFamilyLength())
+              .setQualifier(reference.getQualifierArray(), reference.getQualifierOffset(), reference.getQualifierLength())
+              .setTimestamp(reference.getTimestamp())
+              .setType(reference.getTypeByte())
+              .setValue(HConstants.EMPTY_BYTE_ARRAY)
+              .setTags(reference.getTagsArray(), reference.getTagsOffset(), reference.getTagsLength())
+              .build();
     }
     return result;
   }

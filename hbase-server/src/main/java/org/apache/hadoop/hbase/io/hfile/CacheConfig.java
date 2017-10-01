@@ -26,7 +26,7 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.HConstants;
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceAudience;
 import org.apache.hadoop.hbase.client.ColumnFamilyDescriptor;
 import org.apache.hadoop.hbase.client.ColumnFamilyDescriptorBuilder;
 import org.apache.hadoop.hbase.io.hfile.BlockType.BlockCategory;
@@ -547,7 +547,8 @@ public class CacheConfig {
   // Clear this if in tests you'd make more than one block cache instance.
   @VisibleForTesting
   static BlockCache GLOBAL_BLOCK_CACHE_INSTANCE;
-  private static LruBlockCache GLOBAL_L1_CACHE_INSTANCE;
+  private static LruBlockCache GLOBAL_L1_CACHE_INSTANCE = null;
+  private static BlockCache GLOBAL_L2_CACHE_INSTANCE = null;
 
   /** Boolean whether we have disabled the block cache entirely. */
   @VisibleForTesting
@@ -559,6 +560,20 @@ public class CacheConfig {
    */
   public static LruBlockCache getL1(final Configuration c) {
     return getL1Internal(c);
+  }
+
+  public CacheStats getL1Stats() {
+    if (GLOBAL_L1_CACHE_INSTANCE != null) {
+      return GLOBAL_L1_CACHE_INSTANCE.getStats();
+    }
+    return null;
+  }
+
+  public CacheStats getL2Stats() {
+    if (GLOBAL_L2_CACHE_INSTANCE != null) {
+      return GLOBAL_L2_CACHE_INSTANCE.getStats();
+    }
+    return null;
   }
 
   /**
@@ -593,10 +608,12 @@ public class CacheConfig {
 
     // If we want to use an external block cache then create that.
     if (useExternal) {
-      return getExternalBlockcache(c);
+      GLOBAL_L2_CACHE_INSTANCE = getExternalBlockcache(c);
+    } else {
+      // otherwise use the bucket cache.
+      GLOBAL_L2_CACHE_INSTANCE = getBucketCache(c);
     }
-    // otherwise use the bucket cache.
-    return getBucketCache(c);
+    return GLOBAL_L2_CACHE_INSTANCE;
   }
 
   private static BlockCache getExternalBlockcache(Configuration c) {
@@ -720,6 +737,7 @@ public class CacheConfig {
   @VisibleForTesting
   static synchronized void clearGlobalInstances() {
     GLOBAL_L1_CACHE_INSTANCE = null;
+    GLOBAL_L2_CACHE_INSTANCE = null;
     GLOBAL_BLOCK_CACHE_INSTANCE = null;
   }
 }

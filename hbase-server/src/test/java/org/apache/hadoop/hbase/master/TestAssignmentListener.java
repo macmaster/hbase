@@ -32,13 +32,13 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.Abortable;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.HConstants;
-import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.MiniHBaseCluster;
 import org.apache.hadoop.hbase.ServerLoad;
 import org.apache.hadoop.hbase.ServerName;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.Admin;
 import org.apache.hadoop.hbase.client.Put;
+import org.apache.hadoop.hbase.client.RegionInfo;
 import org.apache.hadoop.hbase.client.Table;
 import org.apache.hadoop.hbase.master.assignment.AssignmentManager;
 import org.apache.hadoop.hbase.regionserver.HRegion;
@@ -97,14 +97,14 @@ public class TestAssignmentListener {
     }
 
     @Override
-    public void regionOpened(final HRegionInfo regionInfo, final ServerName serverName) {
+    public void regionOpened(final RegionInfo regionInfo, final ServerName serverName) {
       LOG.info("Assignment open region=" + regionInfo + " server=" + serverName);
       openCount.incrementAndGet();
       modified.incrementAndGet();
     }
 
     @Override
-    public void regionClosed(final HRegionInfo regionInfo) {
+    public void regionClosed(final RegionInfo regionInfo) {
       LOG.info("Assignment close region=" + regionInfo);
       closeCount.incrementAndGet();
       modified.incrementAndGet();
@@ -258,7 +258,7 @@ public class TestAssignmentListener {
         admin.majorCompact(tableName);
         mergeable = 0;
         for (JVMClusterUtil.RegionServerThread regionThread: miniCluster.getRegionServerThreads()) {
-          for (Region region: regionThread.getRegionServer().getOnlineRegions(tableName)) {
+          for (Region region: regionThread.getRegionServer().getRegions(tableName)) {
             mergeable += ((HRegion)region).isMergeable() ? 1 : 0;
           }
         }
@@ -267,7 +267,7 @@ public class TestAssignmentListener {
       // Merge the two regions
       LOG.info("Merge Regions");
       listener.reset();
-      List<HRegionInfo> regions = admin.getTableRegions(tableName);
+      List<RegionInfo> regions = admin.getRegions(tableName);
       assertEquals(2, regions.size());
       boolean sameServer = areAllRegionsLocatedOnSameServer(tableName);
       // If the regions are located by different server, we need to move
@@ -299,7 +299,7 @@ public class TestAssignmentListener {
     MiniHBaseCluster miniCluster = TEST_UTIL.getMiniHBaseCluster();
     int serverCount = 0;
     for (JVMClusterUtil.RegionServerThread regionThread: miniCluster.getRegionServerThreads()) {
-      if (!regionThread.getRegionServer().getOnlineRegions(TABLE_NAME).isEmpty()) {
+      if (!regionThread.getRegionServer().getRegions(TABLE_NAME).isEmpty()) {
         ++serverCount;
       }
       if (serverCount > 1) {

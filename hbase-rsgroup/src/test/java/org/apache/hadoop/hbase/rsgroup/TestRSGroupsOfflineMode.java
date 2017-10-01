@@ -161,7 +161,7 @@ public class TestRSGroupsOfflineMode {
 
     // Get groupInfoManager from the new active master.
     RSGroupInfoManager groupMgr = ((MiniHBaseCluster)cluster).getMaster().getMasterCoprocessorHost()
-            .findCoprocessors(RSGroupAdminEndpoint.class).get(0).getGroupInfoManager();
+            .findCoprocessor(RSGroupAdminEndpoint.class).getGroupInfoManager();
     // Make sure balancer is in offline mode, since this is what we're testing.
     assertFalse(groupMgr.isOnline());
     // Verify the group affiliation that's loaded from ZK instead of tables.
@@ -176,10 +176,10 @@ public class TestRSGroupsOfflineMode {
     TEST_UTIL.waitFor(WAIT_TIMEOUT, new Waiter.Predicate<Exception>() {
       @Override
       public boolean evaluate() throws Exception {
-        return failoverRS.getOnlineRegions(failoverTable).size() >= 1;
+        return failoverRS.getRegions(failoverTable).size() >= 1;
       }
     });
-    Assert.assertEquals(0, failoverRS.getOnlineRegions(RSGroupInfoManager.RSGROUP_TABLE_NAME).size());
+    Assert.assertEquals(0, failoverRS.getRegions(RSGroupInfoManager.RSGROUP_TABLE_NAME).size());
 
     // Need this for minicluster to shutdown cleanly.
     master.stopMaster();

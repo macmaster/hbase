@@ -20,38 +20,43 @@ package org.apache.hadoop.hbase.security.access;
 
 import java.io.IOException;
 import java.util.Collection;
+import java.util.Optional;
 import java.util.regex.Matcher;
 
 import org.apache.commons.io.FilenameUtils;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
-
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
-import org.apache.hadoop.hbase.coprocessor.MasterObserver;
-import org.apache.hadoop.hbase.coprocessor.MasterCoprocessorEnvironment;
-import org.apache.hadoop.hbase.coprocessor.ObserverContext;
 import org.apache.hadoop.hbase.HBaseInterfaceAudience;
 import org.apache.hadoop.hbase.HConstants;
-import org.apache.hadoop.hbase.HRegionInfo;
-import org.apache.hadoop.hbase.master.MasterServices;
 import org.apache.hadoop.hbase.TableName;
+import org.apache.hadoop.hbase.client.RegionInfo;
 import org.apache.hadoop.hbase.client.TableDescriptor;
+import org.apache.hadoop.hbase.coprocessor.MasterCoprocessor;
+import org.apache.hadoop.hbase.coprocessor.MasterCoprocessorEnvironment;
+import org.apache.hadoop.hbase.coprocessor.MasterObserver;
+import org.apache.hadoop.hbase.coprocessor.ObserverContext;
+import org.apache.hadoop.hbase.master.MasterServices;
 import org.apache.hadoop.hbase.util.Bytes;
+import org.apache.yetus.audience.InterfaceAudience;
 
 /**
  * Master observer for restricting coprocessor assignments.
  */
 @InterfaceAudience.LimitedPrivate(HBaseInterfaceAudience.CONFIG)
-public class CoprocessorWhitelistMasterObserver implements MasterObserver {
+public class CoprocessorWhitelistMasterObserver implements MasterCoprocessor, MasterObserver {
 
   public static final String CP_COPROCESSOR_WHITELIST_PATHS_KEY =
       "hbase.coprocessor.region.whitelist.paths";
 
   private static final Log LOG = LogFactory
       .getLog(CoprocessorWhitelistMasterObserver.class);
+
+  @Override
+  public Optional<MasterObserver> getMasterObserver() {
+    return Optional.of(this);
+  }
 
   @Override
   public void preModifyTable(ObserverContext<MasterCoprocessorEnvironment> ctx,
@@ -61,7 +66,7 @@ public class CoprocessorWhitelistMasterObserver implements MasterObserver {
 
   @Override
   public void preCreateTable(ObserverContext<MasterCoprocessorEnvironment> ctx,
-      TableDescriptor htd, HRegionInfo[] regions) throws IOException {
+      TableDescriptor htd, RegionInfo[] regions) throws IOException {
     verifyCoprocessors(ctx, htd);
   }
 

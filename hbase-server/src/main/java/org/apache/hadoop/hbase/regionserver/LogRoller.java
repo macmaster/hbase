@@ -27,7 +27,7 @@ import java.util.concurrent.locks.ReentrantLock;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceAudience;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.Server;
 import org.apache.hadoop.hbase.regionserver.wal.FSHLog;
@@ -204,7 +204,7 @@ public class LogRoller extends HasThread implements Closeable {
    */
   private void scheduleFlush(final byte [] encodedRegionName) {
     boolean scheduled = false;
-    Region r = this.services.getFromOnlineRegions(Bytes.toString(encodedRegionName));
+    Region r = this.services.getRegion(Bytes.toString(encodedRegionName));
     FlushRequester requester = null;
     if (r != null) {
       requester = this.services.getFlushRequester();

@@ -28,16 +28,19 @@ import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.hbase.Cell;
 import org.apache.hadoop.hbase.CellScanner;
 import org.apache.hadoop.hbase.DoNotRetryIOException;
-import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.ServerName;
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
+import org.apache.hadoop.hbase.client.RegionInfo;
 import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.client.SingleResponse;
 import org.apache.hadoop.hbase.ipc.ServerRpcController;
+import org.apache.hadoop.util.StringUtils;
+import org.apache.yetus.audience.InterfaceAudience;
+
+import org.apache.hadoop.hbase.shaded.com.google.protobuf.ByteString;
+import org.apache.hadoop.hbase.shaded.com.google.protobuf.RpcController;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.AdminProtos.CloseRegionResponse;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.AdminProtos.GetOnlineRegionResponse;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.AdminProtos.GetServerInfoResponse;
-import org.apache.hadoop.hbase.shaded.protobuf.generated.AdminProtos.OpenRegionResponse;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.AdminProtos.ServerInfo;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.ClientProtos;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.ClientProtos.MultiRequest;
@@ -55,10 +58,6 @@ import org.apache.hadoop.hbase.shaded.protobuf.generated.MasterProtos.EnableCata
 import org.apache.hadoop.hbase.shaded.protobuf.generated.MasterProtos.RunCatalogScanResponse;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.MasterProtos.RunCleanerChoreResponse;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.RegionServerStatusProtos.GetLastFlushedSequenceIdResponse;
-import org.apache.hadoop.hbase.regionserver.RegionOpeningState;
-import org.apache.hadoop.hbase.shaded.com.google.protobuf.ByteString;
-import org.apache.hadoop.hbase.shaded.com.google.protobuf.RpcController;
-import org.apache.hadoop.util.StringUtils;
 
 import edu.umd.cs.findbugs.annotations.Nullable;
 
@@ -238,39 +237,9 @@ public final class ResponseConverter {
    * @param proto the GetOnlineRegionResponse
    * @return the list of region info
    */
-  public static List<HRegionInfo> getRegionInfos(final GetOnlineRegionResponse proto) {
+  public static List<RegionInfo> getRegionInfos(final GetOnlineRegionResponse proto) {
     if (proto == null || proto.getRegionInfoCount() == 0) return null;
     return ProtobufUtil.getRegionInfos(proto);
-  }
-
-  /**
-   * Get the region opening state from a OpenRegionResponse
-   *
-   * @param proto the OpenRegionResponse
-   * @return the region opening state
-   */
-  public static RegionOpeningState getRegionOpeningState
-      (final OpenRegionResponse proto) {
-    if (proto == null || proto.getOpeningStateCount() != 1) return null;
-    return RegionOpeningState.valueOf(
-      proto.getOpeningState(0).name());
-  }
-
-  /**
-   * Get a list of region opening state from a OpenRegionResponse
-   *
-   * @param proto the OpenRegionResponse
-   * @return the list of region opening state
-   */
-  public static List<RegionOpeningState> getRegionOpeningStateList(
-      final OpenRegionResponse proto) {
-    if (proto == null) return null;
-    List<RegionOpeningState> regionOpeningStates = new ArrayList<>(proto.getOpeningStateCount());
-    for (int i = 0; i < proto.getOpeningStateCount(); i++) {
-      regionOpeningStates.add(RegionOpeningState.valueOf(
-          proto.getOpeningState(i).name()));
-    }
-    return regionOpeningStates;
   }
 
   /**
@@ -311,10 +280,10 @@ public final class ResponseConverter {
    * @return the response
    */
   public static GetOnlineRegionResponse buildGetOnlineRegionResponse(
-      final List<HRegionInfo> regions) {
+      final List<RegionInfo> regions) {
     GetOnlineRegionResponse.Builder builder = GetOnlineRegionResponse.newBuilder();
-    for (HRegionInfo region: regions) {
-      builder.addRegionInfo(HRegionInfo.convert(region));
+    for (RegionInfo region: regions) {
+      builder.addRegionInfo(ProtobufUtil.toRegionInfo(region));
     }
     return builder.build();
   }

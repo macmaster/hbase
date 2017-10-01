@@ -27,6 +27,7 @@ import org.apache.hadoop.hbase.RegionTooBusyException;
 import org.apache.hadoop.hbase.UnknownScannerException;
 import org.apache.hadoop.hbase.client.Get;
 import org.apache.hadoop.hbase.coprocessor.ObserverContext;
+import org.apache.hadoop.hbase.coprocessor.RegionCoprocessor;
 import org.apache.hadoop.hbase.coprocessor.RegionCoprocessorEnvironment;
 import org.apache.hadoop.hbase.coprocessor.RegionObserver;
 import org.apache.hadoop.hbase.exceptions.FailedSanityCheckException;
@@ -38,11 +39,17 @@ import org.apache.hadoop.hbase.util.Bytes;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Simple test coprocessor for injecting exceptions on Get requests.
  */
-public class ErrorThrowingGetObserver implements RegionObserver {
+public class ErrorThrowingGetObserver implements RegionCoprocessor, RegionObserver {
+  @Override
+  public Optional<RegionObserver> getRegionObserver() {
+    return Optional.of(this);
+  }
+
   public static final String SHOULD_ERROR_ATTRIBUTE = "error";
 
   @Override
@@ -62,7 +69,7 @@ public class ErrorThrowingGetObserver implements RegionObserver {
           throw new NotServingRegionException("Failing for test");
         case REGION_MOVED:
           throw new RegionMovedException(
-              e.getEnvironment().getRegionServerServices().getServerName(), 1);
+              e.getEnvironment().getCoprocessorRegionServerServices().getServerName(), 1);
         case SCANNER_RESET:
           throw new ScannerResetException("Failing for test");
         case UNKNOWN_SCANNER:

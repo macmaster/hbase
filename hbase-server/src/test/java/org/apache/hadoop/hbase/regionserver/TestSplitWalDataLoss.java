@@ -26,7 +26,7 @@ import java.io.IOException;
 import java.util.Collection;
 import java.util.Map;
 
-import org.apache.commons.lang.mutable.MutableBoolean;
+import org.apache.commons.lang3.mutable.MutableBoolean;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.hbase.DroppedSnapshotException;
@@ -95,7 +95,7 @@ public class TestSplitWalDataLoss {
   @Test
   public void test() throws IOException, InterruptedException {
     final HRegionServer rs = testUtil.getRSForFirstRegionInTable(tableName);
-    final HRegion region = (HRegion) rs.getOnlineRegions(tableName).get(0);
+    final HRegion region = (HRegion) rs.getRegions(tableName).get(0);
     HRegion spiedRegion = spy(region);
     final MutableBoolean flushed = new MutableBoolean(false);
     final MutableBoolean reported = new MutableBoolean(false);
@@ -117,7 +117,7 @@ public class TestSplitWalDataLoss {
       }
     }).when(spiedRegion).internalFlushCacheAndCommit(Matchers.<WAL> any(),
       Matchers.<MonitoredTask> any(), Matchers.<PrepareFlushResult> any(),
-      Matchers.<Collection<Store>> any());
+      Matchers.<Collection<HStore>> any());
     // Find region key; don't pick up key for hbase:meta by mistake.
     String key = null;
     for (Map.Entry<String, Region> entry: rs.onlineRegions.entrySet()) {

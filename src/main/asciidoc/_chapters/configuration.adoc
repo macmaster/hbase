@@ -220,6 +220,7 @@ Use the following legend to interpret this table:
 |Hadoop-2.7.0 | X | X | X | X
 |Hadoop-2.7.1+ | NT | S | S | S
 |Hadoop-2.8.0 | X | X | X | X
+|Hadoop-2.8.1 | X | X | X | X
 |Hadoop-3.0.0-alphax | NT | NT | NT | NT
 |===
 
@@ -250,7 +251,7 @@ Hadoop version 2.7.0 is not tested or supported as the Hadoop PMC has explicitly
 .Hadoop 2.8.x
 [TIP]
 ====
-Hadoop version 2.8.0 is not tested or supported as the Hadoop PMC has explicitly labeled that release as not being stable. (reference the link:https://s.apache.org/hadoop-2.8.0-announcement[announcement of Apache Hadoop 2.8.0].)
+Hadoop version 2.8.0 and 2.8.1 are not tested or supported as the Hadoop PMC has explicitly labeled that releases as not being stable. (reference the link:https://s.apache.org/hadoop-2.8.0-announcement[announcement of Apache Hadoop 2.8.0] and link:https://s.apache.org/hadoop-2.8.1-announcement[announcement of Apache Hadoop 2.8.1].)
 ====
 
 .Replace the Hadoop Bundled With HBase!
@@ -546,19 +547,14 @@ Usually this ensemble location is kept out in the _hbase-site.xml_ and is picked
 
 If you are configuring an IDE to run an HBase client, you should include the _conf/_ directory on your classpath so _hbase-site.xml_ settings can be found (or add _src/test/resources_ to pick up the hbase-site.xml used by tests).
 
-Minimally, an HBase client needs several libraries in its `CLASSPATH` when connecting to a cluster, including:
-[source]
+Minimally, an HBase client needs hbase-client module in its dependencies when connecting to a cluster:
+[source,xml]
 ----
-
-commons-configuration (commons-configuration-1.6.jar)
-commons-lang (commons-lang-2.5.jar)
-commons-logging (commons-logging-1.1.1.jar)
-hadoop-core (hadoop-core-1.0.0.jar)
-hbase (hbase-0.92.0.jar)
-log4j (log4j-1.2.16.jar)
-slf4j-api (slf4j-api-1.5.8.jar)
-slf4j-log4j (slf4j-log4j12-1.5.8.jar)
-zookeeper (zookeeper-3.4.2.jar)
+<dependency>
+  <groupId>org.apache.hbase</groupId>
+  <artifactId>hbase-client</artifactId>
+  <version>1.2.4</version>
+</dependency>
 ----
 
 A basic example _hbase-site.xml_ for client only may look as follows:
@@ -788,7 +784,7 @@ Manual splitting can mitigate region creation and movement under load.
 It also makes it so region boundaries are known and invariant (if you disable region splitting). If you use manual splits, it is easier doing staggered, time-based major compactions to spread out your network IO load.
 
 .Disable Automatic Splitting
-To disable automatic splitting, set `hbase.hregion.max.filesize` to a very large value, such as `100 GB` It is not recommended to set it to its absolute maximum value of `Long.MAX_VALUE`.
+To disable automatic splitting, you can set region split policy in either cluster configuration or table configuration to be `org.apache.hadoop.hbase.regionserver.DisabledRegionSplitPolicy`
 
 .Automatic Splitting Is Recommended
 [NOTE]

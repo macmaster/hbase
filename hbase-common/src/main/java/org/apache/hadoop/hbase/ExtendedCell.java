@@ -21,7 +21,7 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.ByteBuffer;
 
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceAudience;
 import org.apache.hadoop.hbase.io.HeapSize;
 
 /**
@@ -73,7 +73,7 @@ public interface ExtendedCell extends Cell, SettableSequenceId, SettableTimestam
    * Does a deep copy of the contents to a new memory area and returns it as a new cell.
    * @return The deep cloned cell
    */
-  Cell deepClone();
+  ExtendedCell deepClone();
 
   /**
    * Extracts the id of the backing bytebuffer of this cell if it was obtained from fixed sized

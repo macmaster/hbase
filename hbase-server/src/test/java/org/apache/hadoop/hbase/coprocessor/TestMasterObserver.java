@@ -28,6 +28,7 @@ import java.io.IOException;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 
@@ -37,12 +38,10 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.CoprocessorEnvironment;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.HColumnDescriptor;
-import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.HRegionLocation;
 import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.MiniHBaseCluster;
 import org.apache.hadoop.hbase.NamespaceDescriptor;
-import org.apache.hadoop.hbase.ProcedureInfo;
 import org.apache.hadoop.hbase.ServerName;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.Admin;
@@ -51,7 +50,9 @@ import org.apache.hadoop.hbase.client.Connection;
 import org.apache.hadoop.hbase.client.ConnectionFactory;
 import org.apache.hadoop.hbase.client.MasterSwitchType;
 import org.apache.hadoop.hbase.client.Mutation;
+import org.apache.hadoop.hbase.client.RegionInfo;
 import org.apache.hadoop.hbase.client.RegionLocator;
+import org.apache.hadoop.hbase.client.SnapshotDescription;
 import org.apache.hadoop.hbase.client.Table;
 import org.apache.hadoop.hbase.client.TableDescriptor;
 import org.apache.hadoop.hbase.master.HMaster;
@@ -60,16 +61,13 @@ import org.apache.hadoop.hbase.master.RegionPlan;
 import org.apache.hadoop.hbase.master.locking.LockProcedure;
 import org.apache.hadoop.hbase.master.procedure.MasterProcedureEnv;
 import org.apache.hadoop.hbase.net.Address;
-import org.apache.hadoop.hbase.procedure2.LockInfo;
+import org.apache.hadoop.hbase.procedure2.LockType;
+import org.apache.hadoop.hbase.procedure2.LockedResource;
+import org.apache.hadoop.hbase.procedure2.Procedure;
 import org.apache.hadoop.hbase.procedure2.ProcedureExecutor;
 import org.apache.hadoop.hbase.procedure2.ProcedureTestingUtility;
+import org.apache.hadoop.hbase.quotas.GlobalQuotaSettings;
 import org.apache.hadoop.hbase.regionserver.HRegionServer;
-import org.apache.hadoop.hbase.shaded.protobuf.ProtobufUtil;
-import org.apache.hadoop.hbase.shaded.protobuf.RequestConverter;
-import org.apache.hadoop.hbase.shaded.protobuf.generated.MasterProtos.GetTableDescriptorsRequest;
-import org.apache.hadoop.hbase.shaded.protobuf.generated.MasterProtos.GetTableNamesRequest;
-import org.apache.hadoop.hbase.shaded.protobuf.generated.QuotaProtos.Quotas;
-import org.apache.hadoop.hbase.shaded.protobuf.generated.SnapshotProtos.SnapshotDescription;
 import org.apache.hadoop.hbase.testclassification.CoprocessorTests;
 import org.apache.hadoop.hbase.testclassification.MediumTests;
 import org.apache.hadoop.hbase.util.Bytes;
@@ -80,6 +78,11 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
 import org.junit.rules.TestName;
+
+import org.apache.hadoop.hbase.shaded.protobuf.ProtobufUtil;
+import org.apache.hadoop.hbase.shaded.protobuf.RequestConverter;
+import org.apache.hadoop.hbase.shaded.protobuf.generated.MasterProtos.GetTableDescriptorsRequest;
+import org.apache.hadoop.hbase.shaded.protobuf.generated.MasterProtos.GetTableNamesRequest;
 
 
 /**
@@ -93,7 +96,7 @@ public class TestMasterObserver {
   public static CountDownLatch tableCreationLatch = new CountDownLatch(1);
   public static CountDownLatch tableDeletionLatch = new CountDownLatch(1);
 
-  public static class CPMasterObserver implements MasterObserver {
+  public static class CPMasterObserver implements MasterCoprocessor, MasterObserver {
 
     private boolean bypass = false;
     private boolean preCreateTableCalled;
@@ -126,10 +129,10 @@ public class TestMasterObserver {
     private boolean postDisableTableCalled;
     private boolean preAbortProcedureCalled;
     private boolean postAbortProcedureCalled;
-    private boolean preListProceduresCalled;
-    private boolean postListProceduresCalled;
-    private boolean preListLocksCalled;
-    private boolean postListLocksCalled;
+    private boolean preGetProceduresCalled;
+    private boolean postGetProceduresCalled;
+    private boolean preGetLocksCalled;
+    private boolean postGetLocksCalled;
     private boolean preMoveCalled;
     private boolean postMoveCalled;
     private boolean preAssignCalled;
@@ -180,8 +183,6 @@ public class TestMasterObserver {
     private boolean postGetTableDescriptorsCalled;
     private boolean postGetTableNamesCalled;
     private boolean preGetTableNamesCalled;
-    private boolean preDispatchMergeCalled;
-    private boolean postDispatchMergeCalled;
     private boolean preMergeRegionsCalled;
     private boolean postMergeRegionsCalled;
     private boolean preRequestLockCalled;
@@ -224,8 +225,10 @@ public class TestMasterObserver {
       postDisableTableCalled = false;
       preAbortProcedureCalled = false;
       postAbortProcedureCalled = false;
-      preListProceduresCalled = false;
-      postListProceduresCalled = false;
+      preGetProceduresCalled = false;
+      postGetProceduresCalled = false;
+      preGetLocksCalled = false;
+      postGetLocksCalled = false;
       preMoveCalled= false;
       postMoveCalled = false;
       preAssignCalled = false;
@@ -272,8 +275,6 @@ public class TestMasterObserver {
       postGetTableDescriptorsCalled = false;
       postGetTableNamesCalled = false;
       preGetTableNamesCalled = false;
-      preDispatchMergeCalled = false;
-      postDispatchMergeCalled = false;
       preMergeRegionsCalled = false;
       postMergeRegionsCalled = false;
       preRequestLockCalled = false;
@@ -283,16 +284,21 @@ public class TestMasterObserver {
     }
 
     @Override
+    public Optional<MasterObserver> getMasterObserver() {
+      return Optional.of(this);
+    }
+
+    @Override
     public void preMergeRegions(
         final ObserverContext<MasterCoprocessorEnvironment> ctx,
-        final HRegionInfo[] regionsToMerge) throws IOException {
+        final RegionInfo[] regionsToMerge) throws IOException {
       preMergeRegionsCalled = true;
     }
 
     @Override
     public void postMergeRegions(
         final ObserverContext<MasterCoprocessorEnvironment> ctx,
-        final HRegionInfo[] regionsToMerge) throws IOException {
+        final RegionInfo[] regionsToMerge) throws IOException {
       postMergeRegionsCalled = true;
     }
 
@@ -301,24 +307,8 @@ public class TestMasterObserver {
     }
 
     @Override
-    public void preDispatchMerge(final ObserverContext<MasterCoprocessorEnvironment> ctx,
-        HRegionInfo regionA, HRegionInfo regionB) throws IOException {
-      preDispatchMergeCalled = true;
-    }
-
-    @Override
-    public void postDispatchMerge(final ObserverContext<MasterCoprocessorEnvironment> ctx,
-        HRegionInfo regionA, HRegionInfo regionB) throws IOException {
-      postDispatchMergeCalled = true;
-    }
-
-    public boolean wasDispatchMergeCalled() {
-      return preDispatchMergeCalled && postDispatchMergeCalled;
-    }
-
-    @Override
     public void preCreateTable(ObserverContext<MasterCoprocessorEnvironment> env,
-        TableDescriptor desc, HRegionInfo[] regions) throws IOException {
+        TableDescriptor desc, RegionInfo[] regions) throws IOException {
       if (bypass) {
         env.bypass();
       }
@@ -327,7 +317,7 @@ public class TestMasterObserver {
 
     @Override
     public void postCreateTable(ObserverContext<MasterCoprocessorEnvironment> env,
-        TableDescriptor desc, HRegionInfo[] regions) throws IOException {
+        TableDescriptor desc, RegionInfo[] regions) throws IOException {
       postCreateTableCalled = true;
     }
 
@@ -530,13 +520,6 @@ public class TestMasterObserver {
       return preListNamespaceDescriptorsCalled && !postListNamespaceDescriptorsCalled;
     }
 
-    @Deprecated
-    @Override
-    public void preAddColumn(ObserverContext<MasterCoprocessorEnvironment> ctx,
-        TableName tableName, HColumnDescriptor columnFamily
-    ) throws IOException {
-    }
-
     @Override
     public void preAddColumnFamily(ObserverContext<MasterCoprocessorEnvironment> ctx,
         TableName tableName, ColumnFamilyDescriptor columnFamily
@@ -548,12 +531,6 @@ public class TestMasterObserver {
       }
 
       preAddColumnCalled = true;
-    }
-
-    @Deprecated
-    @Override
-    public void postAddColumn(ObserverContext<MasterCoprocessorEnvironment> ctx,
-        TableName tableName, HColumnDescriptor columnFamily) throws IOException {
     }
 
     @Override
@@ -570,12 +547,6 @@ public class TestMasterObserver {
       return preAddColumnCalled && !postAddColumnCalled;
     }
 
-    @Deprecated
-    @Override
-    public void preModifyColumn(ObserverContext<MasterCoprocessorEnvironment> ctx,
-        TableName tableName, HColumnDescriptor columnFamily) throws IOException {
-    }
-
     @Override
     public void preModifyColumnFamily(ObserverContext<MasterCoprocessorEnvironment> ctx,
         TableName tableName, ColumnFamilyDescriptor columnFamily) throws IOException {
@@ -583,12 +554,6 @@ public class TestMasterObserver {
         ctx.bypass();
       }
       preModifyColumnCalled = true;
-    }
-
-    @Deprecated
-    @Override
-    public void postModifyColumn(ObserverContext<MasterCoprocessorEnvironment> ctx,
-        TableName tableName, HColumnDescriptor columnFamily) throws IOException {
     }
 
     @Override
@@ -605,12 +570,6 @@ public class TestMasterObserver {
       return preModifyColumnCalled && !postModifyColumnCalled;
     }
 
-    @Deprecated
-    @Override
-    public void preDeleteColumn(ObserverContext<MasterCoprocessorEnvironment> ctx,
-        TableName tableName, byte[] columnFamily) throws IOException {
-    }
-
     @Override
     public void preDeleteColumnFamily(ObserverContext<MasterCoprocessorEnvironment> ctx,
         TableName tableName, byte[] columnFamily) throws IOException {
@@ -618,12 +577,6 @@ public class TestMasterObserver {
         ctx.bypass();
       }
       preDeleteColumnCalled = true;
-    }
-
-    @Deprecated
-    @Override
-    public void postDeleteColumn(ObserverContext<MasterCoprocessorEnvironment> ctx,
-        TableName tableName, byte[] columnFamily) throws IOException {
     }
 
     @Override
@@ -710,48 +663,48 @@ public class TestMasterObserver {
     }
 
     @Override
-    public void preListProcedures(
+    public void preGetProcedures(
         ObserverContext<MasterCoprocessorEnvironment> ctx) throws IOException {
-      preListProceduresCalled = true;
+      preGetProceduresCalled = true;
     }
 
     @Override
-    public void postListProcedures(
+    public void postGetProcedures(
         ObserverContext<MasterCoprocessorEnvironment> ctx,
-        List<ProcedureInfo> procInfoList) throws IOException {
-      postListProceduresCalled = true;
+        List<Procedure<?>> procInfoList) throws IOException {
+      postGetProceduresCalled = true;
     }
 
-    public boolean wasListProceduresCalled() {
-      return preListProceduresCalled && postListProceduresCalled;
+    public boolean wasGetProceduresCalled() {
+      return preGetProceduresCalled && postGetProceduresCalled;
     }
 
-    public boolean wasPreListProceduresCalledOnly() {
-      return preListProceduresCalled && !postListProceduresCalled;
-    }
-
-    @Override
-    public void preListLocks(ObserverContext<MasterCoprocessorEnvironment> ctx) throws IOException {
-      preListLocksCalled = true;
+    public boolean wasPreGetProceduresCalledOnly() {
+      return preGetProceduresCalled && !postGetProceduresCalled;
     }
 
     @Override
-    public void postListLocks(ObserverContext<MasterCoprocessorEnvironment> ctx, List<LockInfo> lockInfoList)
+    public void preGetLocks(ObserverContext<MasterCoprocessorEnvironment> ctx) throws IOException {
+      preGetLocksCalled = true;
+    }
+
+    @Override
+    public void postGetLocks(ObserverContext<MasterCoprocessorEnvironment> ctx, List<LockedResource> lockedResources)
         throws IOException {
-      postListLocksCalled = true;
+      postGetLocksCalled = true;
     }
 
-    public boolean wasListLocksCalled() {
-      return preListLocksCalled && postListLocksCalled;
+    public boolean wasGetLocksCalled() {
+      return preGetLocksCalled && postGetLocksCalled;
     }
 
-    public boolean wasPreListLocksCalledOnly() {
-      return preListLocksCalled && !postListLocksCalled;
+    public boolean wasPreGetLocksCalledOnly() {
+      return preGetLocksCalled && !postGetLocksCalled;
     }
 
     @Override
     public void preMove(ObserverContext<MasterCoprocessorEnvironment> env,
-        HRegionInfo region, ServerName srcServer, ServerName destServer)
+        RegionInfo region, ServerName srcServer, ServerName destServer)
     throws IOException {
       if (bypass) {
         env.bypass();
@@ -760,7 +713,7 @@ public class TestMasterObserver {
     }
 
     @Override
-    public void postMove(ObserverContext<MasterCoprocessorEnvironment> env, HRegionInfo region,
+    public void postMove(ObserverContext<MasterCoprocessorEnvironment> env, RegionInfo region,
         ServerName srcServer, ServerName destServer)
     throws IOException {
       postMoveCalled = true;
@@ -776,7 +729,7 @@ public class TestMasterObserver {
 
     @Override
     public void preAssign(ObserverContext<MasterCoprocessorEnvironment> env,
-        final HRegionInfo regionInfo) throws IOException {
+        final RegionInfo regionInfo) throws IOException {
       if (bypass) {
         env.bypass();
       }
@@ -785,7 +738,7 @@ public class TestMasterObserver {
 
     @Override
     public void postAssign(ObserverContext<MasterCoprocessorEnvironment> env,
-        final HRegionInfo regionInfo) throws IOException {
+        final RegionInfo regionInfo) throws IOException {
       postAssignCalled = true;
     }
 
@@ -799,7 +752,7 @@ public class TestMasterObserver {
 
     @Override
     public void preUnassign(ObserverContext<MasterCoprocessorEnvironment> env,
-        final HRegionInfo regionInfo, final boolean force) throws IOException {
+        final RegionInfo regionInfo, final boolean force) throws IOException {
       if (bypass) {
         env.bypass();
       }
@@ -808,7 +761,7 @@ public class TestMasterObserver {
 
     @Override
     public void postUnassign(ObserverContext<MasterCoprocessorEnvironment> env,
-        final HRegionInfo regionInfo, final boolean force) throws IOException {
+        final RegionInfo regionInfo, final boolean force) throws IOException {
       postUnassignCalled = true;
     }
 
@@ -822,13 +775,13 @@ public class TestMasterObserver {
 
     @Override
     public void preRegionOffline(ObserverContext<MasterCoprocessorEnvironment> env,
-        final HRegionInfo regionInfo) throws IOException {
+        final RegionInfo regionInfo) throws IOException {
       preRegionOfflineCalled = true;
     }
 
     @Override
     public void postRegionOffline(ObserverContext<MasterCoprocessorEnvironment> env,
-        final HRegionInfo regionInfo) throws IOException {
+        final RegionInfo regionInfo) throws IOException {
       postRegionOfflineCalled = true;
     }
 
@@ -1027,36 +980,22 @@ public class TestMasterObserver {
       return preDeleteSnapshotCalled && postDeleteSnapshotCalled;
     }
 
-    @Deprecated
-    @Override
-    public void preCreateTableHandler(
-        ObserverContext<MasterCoprocessorEnvironment> env,
-        HTableDescriptor desc, HRegionInfo[] regions) throws IOException {
-    }
-
     @Override
     public void preCreateTableAction(
         final ObserverContext<MasterCoprocessorEnvironment> env,
         final TableDescriptor desc,
-        final HRegionInfo[] regions) throws IOException {
+        final RegionInfo[] regions) throws IOException {
       if (bypass) {
         env.bypass();
       }
       preCreateTableActionCalled = true;
     }
 
-    @Deprecated
-    @Override
-    public void postCreateTableHandler(
-        ObserverContext<MasterCoprocessorEnvironment> ctx,
-        HTableDescriptor desc, HRegionInfo[] regions) throws IOException {
-    }
-
     @Override
     public void postCompletedCreateTableAction(
         final ObserverContext<MasterCoprocessorEnvironment> ctx,
         final TableDescriptor desc,
-        final HRegionInfo[] regions) throws IOException {
+        final RegionInfo[] regions) throws IOException {
       postCompletedCreateTableActionCalled = true;
       tableCreationLatch.countDown();
     }
@@ -1070,20 +1009,6 @@ public class TestMasterObserver {
 
     public boolean wasCreateTableActionCalledOnly() {
       return preCreateTableActionCalled && !postCompletedCreateTableActionCalled;
-    }
-
-    @Deprecated
-    @Override
-    public void preDeleteTableHandler(
-        ObserverContext<MasterCoprocessorEnvironment> env, TableName tableName)
-        throws IOException {
-    }
-
-    @Deprecated
-    @Override
-    public void postDeleteTableHandler(
-        ObserverContext<MasterCoprocessorEnvironment> ctx, TableName tableName)
-        throws IOException {
     }
 
     @Override
@@ -1112,20 +1037,6 @@ public class TestMasterObserver {
       return preDeleteTableActionCalled && !postCompletedDeleteTableActionCalled;
     }
 
-    @Deprecated
-    @Override
-    public void preTruncateTableHandler(
-        ObserverContext<MasterCoprocessorEnvironment> env, TableName tableName)
-        throws IOException {
-    }
-
-    @Deprecated
-    @Override
-    public void postTruncateTableHandler(
-        ObserverContext<MasterCoprocessorEnvironment> ctx, TableName tableName)
-        throws IOException {
-    }
-
     @Override
     public void preTruncateTableAction(
         final ObserverContext<MasterCoprocessorEnvironment> env, final TableName tableName)
@@ -1149,20 +1060,6 @@ public class TestMasterObserver {
 
     public boolean wasTruncateTableActionCalledOnly() {
       return preTruncateTableActionCalled && !postCompletedTruncateTableActionCalled;
-    }
-
-    @Deprecated
-    @Override
-    public void preModifyTableHandler(
-        ObserverContext<MasterCoprocessorEnvironment> env, TableName tableName,
-        HTableDescriptor htd) throws IOException {
-    }
-
-    @Deprecated
-    @Override
-    public void postModifyTableHandler(
-        ObserverContext<MasterCoprocessorEnvironment> env, TableName tableName,
-        HTableDescriptor htd) throws IOException {
     }
 
     @Override
@@ -1192,13 +1089,6 @@ public class TestMasterObserver {
       return preModifyTableActionCalled && !postCompletedModifyTableActionCalled;
     }
 
-    @Deprecated
-    @Override
-    public void preAddColumnHandler(
-        ObserverContext<MasterCoprocessorEnvironment> ctx, TableName tableName,
-        HColumnDescriptor columnFamily) throws IOException {
-    }
-
     @Override
     public void preAddColumnFamilyAction(
         final ObserverContext<MasterCoprocessorEnvironment> ctx,
@@ -1208,13 +1098,6 @@ public class TestMasterObserver {
         ctx.bypass();
       }
       preAddColumnFamilyActionCalled = true;
-    }
-
-    @Deprecated
-    @Override
-    public void postAddColumnHandler(
-        ObserverContext<MasterCoprocessorEnvironment> ctx, TableName tableName,
-        HColumnDescriptor columnFamily) throws IOException {
     }
 
     @Override
@@ -1233,13 +1116,6 @@ public class TestMasterObserver {
       return preAddColumnFamilyActionCalled && !postCompletedAddColumnFamilyActionCalled;
     }
 
-    @Deprecated
-    @Override
-    public void preModifyColumnHandler(
-        ObserverContext<MasterCoprocessorEnvironment> ctx, TableName tableName,
-        HColumnDescriptor columnFamily) throws IOException {
-    }
-
     @Override
     public void preModifyColumnFamilyAction(
         final ObserverContext<MasterCoprocessorEnvironment> ctx,
@@ -1249,13 +1125,6 @@ public class TestMasterObserver {
         ctx.bypass();
       }
       preModifyColumnFamilyActionCalled = true;
-    }
-
-    @Deprecated
-    @Override
-    public void postModifyColumnHandler(
-        ObserverContext<MasterCoprocessorEnvironment> ctx, TableName tableName,
-        HColumnDescriptor columnFamily) throws IOException {
     }
 
     @Override
@@ -1273,13 +1142,6 @@ public class TestMasterObserver {
       return preModifyColumnFamilyActionCalled && !postCompletedModifyColumnFamilyActionCalled;
     }
 
-    @Deprecated
-    @Override
-    public void preDeleteColumnHandler(
-        ObserverContext<MasterCoprocessorEnvironment> ctx, TableName tableName,
-        byte[] columnFamily) throws IOException {
-    }
-
     @Override
     public void preDeleteColumnFamilyAction(
         final ObserverContext<MasterCoprocessorEnvironment> ctx,
@@ -1289,13 +1151,6 @@ public class TestMasterObserver {
         ctx.bypass();
       }
       preDeleteColumnFamilyActionCalled = true;
-    }
-
-    @Deprecated
-    @Override
-    public void postDeleteColumnHandler(
-        ObserverContext<MasterCoprocessorEnvironment> ctx, TableName tableName,
-        byte[] columnFamily) throws IOException {
     }
 
     @Override
@@ -1312,20 +1167,6 @@ public class TestMasterObserver {
 
     public boolean preDeleteColumnFamilyActionCalledOnly() {
       return preDeleteColumnFamilyActionCalled && !postCompletedDeleteColumnFamilyActionCalled;
-    }
-
-    @Deprecated
-    @Override
-    public void preEnableTableHandler(
-        ObserverContext<MasterCoprocessorEnvironment> env, TableName tableName)
-        throws IOException {
-    }
-
-    @Deprecated
-    @Override
-    public void postEnableTableHandler(
-        ObserverContext<MasterCoprocessorEnvironment> ctx, TableName tableName)
-        throws IOException {
     }
 
     @Override
@@ -1351,18 +1192,6 @@ public class TestMasterObserver {
 
     public boolean preEnableTableActionCalledOnly() {
       return preEnableTableActionCalled && !postCompletedEnableTableActionCalled;
-    }
-
-    @Override
-    public void preDisableTableHandler(
-        ObserverContext<MasterCoprocessorEnvironment> env, TableName tableName)
-        throws IOException {
-    }
-
-    @Override
-    public void postDisableTableHandler(
-        ObserverContext<MasterCoprocessorEnvironment> ctx, TableName tableName)
-        throws IOException {
     }
 
     @Override
@@ -1436,52 +1265,56 @@ public class TestMasterObserver {
 
     @Override
     public void preSetUserQuota(final ObserverContext<MasterCoprocessorEnvironment> ctx,
-        final String userName, final Quotas quotas) throws IOException {
+        final String userName, final GlobalQuotaSettings quotas) throws IOException {
     }
 
     @Override
     public void postSetUserQuota(final ObserverContext<MasterCoprocessorEnvironment> ctx,
-        final String userName, final Quotas quotas) throws IOException {
+        final String userName, final GlobalQuotaSettings quotas) throws IOException {
     }
 
     @Override
     public void preSetUserQuota(final ObserverContext<MasterCoprocessorEnvironment> ctx,
-        final String userName, final TableName tableName, final Quotas quotas) throws IOException {
+        final String userName, final TableName tableName, final GlobalQuotaSettings quotas)
+            throws IOException {
     }
 
     @Override
     public void postSetUserQuota(final ObserverContext<MasterCoprocessorEnvironment> ctx,
-        final String userName, final TableName tableName, final Quotas quotas) throws IOException {
+        final String userName, final TableName tableName, final GlobalQuotaSettings quotas)
+            throws IOException {
     }
 
     @Override
     public void preSetUserQuota(final ObserverContext<MasterCoprocessorEnvironment> ctx,
-        final String userName, final String namespace, final Quotas quotas) throws IOException {
+        final String userName, final String namespace, final GlobalQuotaSettings quotas)
+            throws IOException {
     }
 
     @Override
     public void postSetUserQuota(final ObserverContext<MasterCoprocessorEnvironment> ctx,
-        final String userName, final String namespace, final Quotas quotas) throws IOException {
+        final String userName, final String namespace, final GlobalQuotaSettings quotas)
+            throws IOException {
     }
 
     @Override
     public void preSetTableQuota(final ObserverContext<MasterCoprocessorEnvironment> ctx,
-        final TableName tableName, final Quotas quotas) throws IOException {
+        final TableName tableName, final GlobalQuotaSettings quotas) throws IOException {
     }
 
     @Override
     public void postSetTableQuota(final ObserverContext<MasterCoprocessorEnvironment> ctx,
-        final TableName tableName, final Quotas quotas) throws IOException {
+        final TableName tableName, final GlobalQuotaSettings quotas) throws IOException {
     }
 
     @Override
     public void preSetNamespaceQuota(final ObserverContext<MasterCoprocessorEnvironment> ctx,
-        final String namespace, final Quotas quotas) throws IOException {
+        final String namespace, final GlobalQuotaSettings quotas) throws IOException {
     }
 
     @Override
     public void postSetNamespaceQuota(final ObserverContext<MasterCoprocessorEnvironment> ctx,
-        final String namespace, final Quotas quotas) throws IOException {
+        final String namespace, final GlobalQuotaSettings quotas) throws IOException {
     }
 
     @Override
@@ -1546,14 +1379,14 @@ public class TestMasterObserver {
 
     @Override
     public void preRequestLock(ObserverContext<MasterCoprocessorEnvironment> ctx, String namespace,
-        TableName tableName, HRegionInfo[] regionInfos, LockProcedure.LockType type,
+        TableName tableName, RegionInfo[] regionInfos, LockType type,
         String description) throws IOException {
       preRequestLockCalled = true;
     }
 
     @Override
     public void postRequestLock(ObserverContext<MasterCoprocessorEnvironment> ctx, String namespace,
-        TableName tableName, HRegionInfo[] regionInfos, LockProcedure.LockType type,
+        TableName tableName, RegionInfo[] regionInfos, LockType type,
         String description) throws IOException {
       postRequestLockCalled = true;
     }
@@ -1592,8 +1425,8 @@ public class TestMasterObserver {
     @Override
     public void postCompletedSplitRegionAction(
         final ObserverContext<MasterCoprocessorEnvironment> c,
-        final HRegionInfo regionInfoA,
-        final HRegionInfo regionInfoB) throws IOException {
+        final RegionInfo regionInfoA,
+        final RegionInfo regionInfoB) throws IOException {
     }
 
     @Override
@@ -1616,34 +1449,34 @@ public class TestMasterObserver {
     @Override
     public void preMergeRegionsAction(
         final ObserverContext<MasterCoprocessorEnvironment> ctx,
-        final HRegionInfo[] regionsToMerge) throws IOException {
+        final RegionInfo[] regionsToMerge) throws IOException {
     }
 
     @Override
     public void postCompletedMergeRegionsAction(
         final ObserverContext<MasterCoprocessorEnvironment> c,
-        final HRegionInfo[] regionsToMerge,
-        final HRegionInfo mergedRegion) throws IOException {
+        final RegionInfo[] regionsToMerge,
+        final RegionInfo mergedRegion) throws IOException {
     }
 
     @Override
     public void preMergeRegionsCommitAction(
         final ObserverContext<MasterCoprocessorEnvironment> ctx,
-        final HRegionInfo[] regionsToMerge,
+        final RegionInfo[] regionsToMerge,
         final List<Mutation> metaEntries) throws IOException {
     }
 
     @Override
     public void postMergeRegionsCommitAction(
         final ObserverContext<MasterCoprocessorEnvironment> ctx,
-        final HRegionInfo[] regionsToMerge,
-        final HRegionInfo mergedRegion) throws IOException {
+        final RegionInfo[] regionsToMerge,
+        final RegionInfo mergedRegion) throws IOException {
     }
 
     @Override
     public void postRollBackMergeRegionsAction(
         final ObserverContext<MasterCoprocessorEnvironment> ctx,
-        final HRegionInfo[] regionsToMerge) throws IOException {
+        final RegionInfo[] regionsToMerge) throws IOException {
     }
   }
 
@@ -1676,8 +1509,7 @@ public class TestMasterObserver {
     assertTrue("Master should be active", master.isActiveMaster());
     MasterCoprocessorHost host = master.getMasterCoprocessorHost();
     assertNotNull("CoprocessorHost should not be null", host);
-    CPMasterObserver cp = (CPMasterObserver)host.findCoprocessor(
-        CPMasterObserver.class.getName());
+    CPMasterObserver cp = host.findCoprocessor(CPMasterObserver.class);
     assertNotNull("CPMasterObserver coprocessor not found or not installed!", cp);
 
     // check basic lifecycle
@@ -1694,8 +1526,7 @@ public class TestMasterObserver {
     final TableName tableName = TableName.valueOf(name.getMethodName());
     HMaster master = cluster.getMaster();
     MasterCoprocessorHost host = master.getMasterCoprocessorHost();
-    CPMasterObserver cp = (CPMasterObserver)host.findCoprocessor(
-        CPMasterObserver.class.getName());
+    CPMasterObserver cp = host.findCoprocessor(CPMasterObserver.class);
     cp.enableBypass(true);
     cp.resetStates();
     assertFalse("No table created yet", cp.wasCreateTableCalled());
@@ -1871,8 +1702,7 @@ public class TestMasterObserver {
     MiniHBaseCluster cluster = UTIL.getHBaseCluster();
     HMaster master = cluster.getMaster();
     MasterCoprocessorHost host = master.getMasterCoprocessorHost();
-    CPMasterObserver cp = (CPMasterObserver)host.findCoprocessor(
-        CPMasterObserver.class.getName());
+    CPMasterObserver cp = host.findCoprocessor(CPMasterObserver.class);
     cp.resetStates();
 
     // create a table
@@ -1933,8 +1763,7 @@ public class TestMasterObserver {
     String testNamespace = "observed_ns";
     HMaster master = cluster.getMaster();
     MasterCoprocessorHost host = master.getMasterCoprocessorHost();
-    CPMasterObserver cp = (CPMasterObserver)host.findCoprocessor(
-        CPMasterObserver.class.getName());
+    CPMasterObserver cp = host.findCoprocessor(CPMasterObserver.class);
 
     cp.enableBypass(false);
     cp.resetStates();
@@ -2039,8 +1868,7 @@ public class TestMasterObserver {
 
     HMaster master = cluster.getMaster();
     MasterCoprocessorHost host = master.getMasterCoprocessorHost();
-    CPMasterObserver cp = (CPMasterObserver)host.findCoprocessor(
-        CPMasterObserver.class.getName());
+    CPMasterObserver cp = host.findCoprocessor(CPMasterObserver.class);
     cp.enableBypass(false);
     cp.resetStates();
 
@@ -2099,10 +1927,10 @@ public class TestMasterObserver {
       byte[] destRS = Bytes.toBytes(cluster.getRegionServer(1).getServerName().toString());
       //Make sure no regions are in transition now
       UTIL.waitUntilNoRegionsInTransition();
-      List<HRegionInfo> openRegions = ProtobufUtil.getOnlineRegions(rs.getRSRpcServices());
+      List<RegionInfo> openRegions = ProtobufUtil.getOnlineRegions(rs.getRSRpcServices());
       int moveCnt = openRegions.size()/2;
       for (int i=0; i<moveCnt; i++) {
-        HRegionInfo info = openRegions.get(i);
+        RegionInfo info = openRegions.get(i);
         if (!info.isMetaTable()) {
           master.getMasterRpcServices().moveRegion(null, RequestConverter.buildMoveRegionRequest(
               openRegions.get(i).getEncodedNameAsBytes(), destRS));
@@ -2128,8 +1956,7 @@ public class TestMasterObserver {
 
     HMaster master = cluster.getMaster();
     MasterCoprocessorHost host = master.getMasterCoprocessorHost();
-    CPMasterObserver cp = (CPMasterObserver)host.findCoprocessor(
-        CPMasterObserver.class.getName());
+    CPMasterObserver cp = host.findCoprocessor(CPMasterObserver.class);
     cp.resetStates();
 
     GetTableDescriptorsRequest req =
@@ -2146,8 +1973,7 @@ public class TestMasterObserver {
 
     HMaster master = cluster.getMaster();
     MasterCoprocessorHost host = master.getMasterCoprocessorHost();
-    CPMasterObserver cp = (CPMasterObserver)host.findCoprocessor(
-        CPMasterObserver.class.getName());
+    CPMasterObserver cp = host.findCoprocessor(CPMasterObserver.class);
     cp.resetStates();
 
     master.getMasterRpcServices().getTableNames(null,
@@ -2162,8 +1988,7 @@ public class TestMasterObserver {
 
     HMaster master = cluster.getMaster();
     MasterCoprocessorHost host = master.getMasterCoprocessorHost();
-    CPMasterObserver cp = (CPMasterObserver)host.findCoprocessor(
-        CPMasterObserver.class.getName());
+    CPMasterObserver cp = host.findCoprocessor(CPMasterObserver.class);
     cp.resetStates();
 
     master.abortProcedure(1, true);
@@ -2173,35 +1998,33 @@ public class TestMasterObserver {
   }
 
   @Test (timeout=180000)
-  public void testListProceduresOperation() throws Exception {
+  public void testGetProceduresOperation() throws Exception {
     MiniHBaseCluster cluster = UTIL.getHBaseCluster();
 
     HMaster master = cluster.getMaster();
     MasterCoprocessorHost host = master.getMasterCoprocessorHost();
-    CPMasterObserver cp = (CPMasterObserver)host.findCoprocessor(
-        CPMasterObserver.class.getName());
+    CPMasterObserver cp = host.findCoprocessor(CPMasterObserver.class);
     cp.resetStates();
 
-    master.listProcedures();
+    master.getProcedures();
     assertTrue(
-      "Coprocessor should be called on list procedures request",
-      cp.wasListProceduresCalled());
+      "Coprocessor should be called on get procedures request",
+      cp.wasGetProceduresCalled());
   }
 
   @Test (timeout=180000)
-  public void testListLocksOperation() throws Exception {
+  public void testGetLocksOperation() throws Exception {
     MiniHBaseCluster cluster = UTIL.getHBaseCluster();
 
     HMaster master = cluster.getMaster();
     MasterCoprocessorHost host = master.getMasterCoprocessorHost();
-    CPMasterObserver cp = (CPMasterObserver)host.findCoprocessor(
-        CPMasterObserver.class.getName());
+    CPMasterObserver cp = host.findCoprocessor(CPMasterObserver.class);
     cp.resetStates();
 
-    master.listLocks();
+    master.getLocks();
     assertTrue(
-      "Coprocessor should be called on list locks request",
-      cp.wasListLocksCalled());
+      "Coprocessor should be called on get locks request",
+      cp.wasGetLocksCalled());
   }
 
   private void deleteTable(Admin admin, TableName tableName) throws Exception {
@@ -2216,13 +2039,12 @@ public class TestMasterObserver {
   @Test
   public void testQueueLockAndLockHeartbeatOperations() throws Exception {
     HMaster master = UTIL.getMiniHBaseCluster().getMaster();
-    CPMasterObserver cp = (CPMasterObserver)master.getMasterCoprocessorHost().findCoprocessor(
-        CPMasterObserver.class.getName());
+    CPMasterObserver cp = master.getMasterCoprocessorHost().findCoprocessor(CPMasterObserver.class);
     cp.resetStates();
 
     final TableName tableName = TableName.valueOf("testLockedTable");
     long procId = master.getLockManager().remoteLocks().requestTableLock(tableName,
-          LockProcedure.LockType.EXCLUSIVE, "desc", null);
+          LockType.EXCLUSIVE, "desc", null);
     master.getLockManager().remoteLocks().lockHeartbeat(procId, false);
 
     assertTrue(cp.preAndPostForQueueLockAndHeartbeatLockCalled());

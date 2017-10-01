@@ -18,6 +18,8 @@
  */
 package org.apache.hadoop.hbase.regionserver;
 
+import static org.apache.hadoop.hbase.regionserver.Store.PRIORITY_USER;
+
 import java.io.IOException;
 import java.security.Key;
 import java.security.SecureRandom;
@@ -28,6 +30,7 @@ import java.util.Date;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NavigableSet;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentSkipListSet;
 
 import javax.crypto.spec.SecretKeySpec;
@@ -60,6 +63,7 @@ import org.apache.hadoop.hbase.mob.MobConstants;
 import org.apache.hadoop.hbase.mob.MobUtils;
 import org.apache.hadoop.hbase.monitoring.MonitoredTask;
 import org.apache.hadoop.hbase.regionserver.compactions.CompactionContext;
+import org.apache.hadoop.hbase.regionserver.compactions.CompactionLifeCycleTracker;
 import org.apache.hadoop.hbase.regionserver.throttle.NoLimitThroughputController;
 import org.apache.hadoop.hbase.security.EncryptionUtil;
 import org.apache.hadoop.hbase.security.User;
@@ -516,7 +520,7 @@ public class TestHMobStore {
     this.store.add(new KeyValue(row, family, qf6, 1, value), null);
     flush(2);
 
-    Collection<StoreFile> storefiles = this.store.getStorefiles();
+    Collection<HStoreFile> storefiles = this.store.getStorefiles();
     checkMobHFileEncrytption(storefiles);
 
     // Scan the values
@@ -536,16 +540,17 @@ public class TestHMobStore {
 
     // Trigger major compaction
     this.store.triggerMajorCompaction();
-    CompactionContext requestCompaction = this.store.requestCompaction(1, null);
-    this.store.compact(requestCompaction, NoLimitThroughputController.INSTANCE, null);
+    Optional<CompactionContext> requestCompaction =
+        this.store.requestCompaction(PRIORITY_USER, CompactionLifeCycleTracker.DUMMY, null);
+    this.store.compact(requestCompaction.get(), NoLimitThroughputController.INSTANCE, null);
     Assert.assertEquals(1, this.store.getStorefiles().size());
 
     //Check encryption after compaction
     checkMobHFileEncrytption(this.store.getStorefiles());
   }
 
-  private void checkMobHFileEncrytption(Collection<StoreFile> storefiles) {
-    StoreFile storeFile = storefiles.iterator().next();
+  private void checkMobHFileEncrytption(Collection<HStoreFile> storefiles) {
+    HStoreFile storeFile = storefiles.iterator().next();
     HFile.Reader reader = storeFile.getReader().getHFileReader();
     byte[] encryptionKey = reader.getTrailer().getEncryptionKey();
     Assert.assertTrue(null != encryptionKey);

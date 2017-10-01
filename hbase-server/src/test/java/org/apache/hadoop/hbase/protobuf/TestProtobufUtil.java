@@ -20,24 +20,20 @@ package org.apache.hadoop.hbase.protobuf;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
-
 import java.io.IOException;
 import java.nio.ByteBuffer;
 
 import org.apache.hadoop.hbase.Cell;
+import org.apache.hadoop.hbase.CellBuilderFactory;
+import org.apache.hadoop.hbase.CellBuilderType;
 import org.apache.hadoop.hbase.CellComparator;
-import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.KeyValue;
-import org.apache.hadoop.hbase.ProcedureInfo;
-import org.apache.hadoop.hbase.ProcedureState;
 import org.apache.hadoop.hbase.ByteBufferKeyValue;
 import org.apache.hadoop.hbase.client.Append;
 import org.apache.hadoop.hbase.client.Delete;
 import org.apache.hadoop.hbase.client.Get;
 import org.apache.hadoop.hbase.client.Increment;
 import org.apache.hadoop.hbase.client.Put;
-import org.apache.hadoop.hbase.procedure2.LockInfo;
 import org.apache.hadoop.hbase.protobuf.generated.ClientProtos;
 import org.apache.hadoop.hbase.protobuf.generated.ClientProtos.Column;
 import org.apache.hadoop.hbase.protobuf.generated.ClientProtos.MutationProto;
@@ -46,7 +42,7 @@ import org.apache.hadoop.hbase.protobuf.generated.ClientProtos.MutationProto.Col
 import org.apache.hadoop.hbase.protobuf.generated.ClientProtos.MutationProto.DeleteType;
 import org.apache.hadoop.hbase.protobuf.generated.ClientProtos.MutationProto.MutationType;
 import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos.NameBytesPair;
-import org.apache.hadoop.hbase.shaded.protobuf.generated.CellProtos;
+import org.apache.hadoop.hbase.protobuf.generated.CellProtos;
 import org.apache.hadoop.hbase.testclassification.MiscTests;
 import org.apache.hadoop.hbase.testclassification.SmallTests;
 import org.apache.hadoop.hbase.util.Bytes;
@@ -130,7 +126,6 @@ public class TestProtobufUtil {
     qualifierBuilder.setQualifier(ByteString.copyFromUtf8("c2"));
     qualifierBuilder.setValue(ByteString.copyFromUtf8("v2"));
     valueBuilder.addQualifierValue(qualifierBuilder.build());
-    qualifierBuilder.setTimestamp(timeStamp);
     mutateBuilder.addColumnValue(valueBuilder.build());
 
     MutationProto proto = mutateBuilder.build();
@@ -203,6 +198,7 @@ public class TestProtobufUtil {
    */
   @Test
   public void testIncrement() throws IOException {
+    long timeStamp = 111111;
     MutationProto.Builder mutateBuilder = MutationProto.newBuilder();
     mutateBuilder.setRow(ByteString.copyFromUtf8("row"));
     mutateBuilder.setMutateType(MutationType.INCREMENT);
@@ -211,6 +207,7 @@ public class TestProtobufUtil {
     QualifierValue.Builder qualifierBuilder = QualifierValue.newBuilder();
     qualifierBuilder.setQualifier(ByteString.copyFromUtf8("c1"));
     qualifierBuilder.setValue(ByteString.copyFrom(Bytes.toBytes(11L)));
+    qualifierBuilder.setTimestamp(timeStamp);
     valueBuilder.addQualifierValue(qualifierBuilder.build());
     qualifierBuilder.setQualifier(ByteString.copyFromUtf8("c2"));
     qualifierBuilder.setValue(ByteString.copyFrom(Bytes.toBytes(22L)));
@@ -226,8 +223,8 @@ public class TestProtobufUtil {
     mutateBuilder.setDurability(MutationProto.Durability.USE_DEFAULT);
 
     Increment increment = ProtobufUtil.toIncrement(proto, null);
-    assertEquals(mutateBuilder.build(),
-      ProtobufUtil.toMutation(increment, MutationProto.newBuilder(), HConstants.NO_NONCE));
+    mutateBuilder.setTimestamp(increment.getTimeStamp());
+    assertEquals(mutateBuilder.build(), ProtobufUtil.toMutation(MutationType.INCREMENT, increment));
   }
 
   /**
@@ -335,44 +332,8 @@ public class TestProtobufUtil {
     ByteBuffer dbb = ByteBuffer.allocateDirect(arr.length);
     dbb.put(arr);
     ByteBufferKeyValue offheapKV = new ByteBufferKeyValue(dbb, kv1.getLength(), kv2.getLength());
-    CellProtos.Cell cell = org.apache.hadoop.hbase.shaded.protobuf.ProtobufUtil.toCell(offheapKV);
-    Cell newOffheapKV = org.apache.hadoop.hbase.shaded.protobuf.ProtobufUtil.toCell(cell);
+    CellProtos.Cell cell = ProtobufUtil.toCell(offheapKV);
+    Cell newOffheapKV = ProtobufUtil.toCell(CellBuilderFactory.create(CellBuilderType.SHALLOW_COPY), cell);
     assertTrue(CellComparator.COMPARATOR.compare(offheapKV, newOffheapKV) == 0);
-  }
-
-  private static ProcedureInfo createProcedureInfo(long procId)
-  {
-    return new ProcedureInfo(procId, "java.lang.Object", null,
-        ProcedureState.RUNNABLE, -1, null, null, 0, 0, null);
-  }
-
-  private static void assertProcedureInfoEquals(ProcedureInfo expected,
-      ProcedureInfo result)
-  {
-    if (expected == result) {
-      return;
-    } else if (expected == null || result == null) {
-      fail();
-    }
-
-    assertEquals(expected.getProcId(), result.getProcId());
-  }
-
-  private static void assertLockInfoEquals(LockInfo expected, LockInfo result)
-  {
-    assertEquals(expected.getResourceType(), result.getResourceType());
-    assertEquals(expected.getResourceName(), result.getResourceName());
-    assertEquals(expected.getLockType(), result.getLockType());
-    assertProcedureInfoEquals(expected.getExclusiveLockOwnerProcedure(),
-        result.getExclusiveLockOwnerProcedure());
-    assertEquals(expected.getSharedLockCount(), result.getSharedLockCount());
-  }
-
-  private static void assertWaitingProcedureEquals(
-      LockInfo.WaitingProcedure expected, LockInfo.WaitingProcedure result)
-  {
-    assertEquals(expected.getLockType(), result.getLockType());
-    assertProcedureInfoEquals(expected.getProcedure(),
-        result.getProcedure());
   }
 }

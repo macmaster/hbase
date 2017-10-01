@@ -32,15 +32,13 @@ import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.hbase.client.ClusterConnection;
+import org.apache.hadoop.hbase.client.RegionInfo;
 import org.apache.hadoop.hbase.client.locking.EntityLock;
 import org.apache.hadoop.hbase.executor.ExecutorService;
 import org.apache.hadoop.hbase.fs.HFileSystem;
 import org.apache.hadoop.hbase.ipc.RpcServerInterface;
-import org.apache.hadoop.hbase.shaded.protobuf.generated.HBaseProtos;
-import org.apache.hadoop.hbase.shaded.protobuf.generated.RegionServerStatusProtos.RegionStateTransition.TransitionCode;
 import org.apache.hadoop.hbase.quotas.RegionServerRpcQuotaManager;
 import org.apache.hadoop.hbase.quotas.RegionServerSpaceQuotaManager;
-import org.apache.hadoop.hbase.regionserver.CompactionRequestor;
 import org.apache.hadoop.hbase.regionserver.FlushRequester;
 import org.apache.hadoop.hbase.regionserver.HeapMemoryManager;
 import org.apache.hadoop.hbase.regionserver.Leases;
@@ -56,6 +54,9 @@ import org.apache.hadoop.hbase.wal.WAL;
 import org.apache.hadoop.hbase.zookeeper.MetaTableLocator;
 import org.apache.hadoop.hbase.zookeeper.ZooKeeperWatcher;
 import org.apache.zookeeper.KeeperException;
+
+import org.apache.hadoop.hbase.shaded.protobuf.generated.HBaseProtos;
+import org.apache.hadoop.hbase.shaded.protobuf.generated.RegionServerStatusProtos.RegionStateTransition.TransitionCode;
 
 import com.google.protobuf.Service;
 
@@ -95,17 +96,17 @@ public class MockRegionServerServices implements RegionServerServices {
   }
 
   @Override
-  public boolean removeFromOnlineRegions(Region r, ServerName destination) {
+  public boolean removeRegion(Region r, ServerName destination) {
     return this.regions.remove(r.getRegionInfo().getEncodedName()) != null;
   }
 
   @Override
-  public Region getFromOnlineRegions(String encodedRegionName) {
+  public Region getRegion(String encodedRegionName) {
     return this.regions.get(encodedRegionName);
   }
 
   @Override
-  public List<Region> getOnlineRegions(TableName tableName) throws IOException {
+  public List<Region> getRegions(TableName tableName) throws IOException {
     return null;
   }
 
@@ -115,24 +116,24 @@ public class MockRegionServerServices implements RegionServerServices {
   }
 
   @Override
-  public List<Region> getOnlineRegions() {
+  public List<Region> getRegions() {
     return null;
   }
 
   @Override
-  public void addToOnlineRegions(Region r) {
+  public void addRegion(Region r) {
     this.regions.put(r.getRegionInfo().getEncodedName(), r);
   }
 
   @Override
   public void postOpenDeployTasks(Region r) throws KeeperException, IOException {
-    addToOnlineRegions(r);
+    addRegion(r);
   }
 
   @Override
   public void postOpenDeployTasks(PostOpenDeployContext context) throws KeeperException,
       IOException {
-    addToOnlineRegions(context.getRegion());
+    addRegion(context.getRegion());
   }
 
   @Override
@@ -156,11 +157,6 @@ public class MockRegionServerServices implements RegionServerServices {
 
   @Override
   public FlushRequester getFlushRequester() {
-    return null;
-  }
-
-  @Override
-  public CompactionRequestor getCompactionRequester() {
     return null;
   }
 
@@ -248,7 +244,7 @@ public class MockRegionServerServices implements RegionServerServices {
   }
 
   @Override
-  public WAL getWAL(HRegionInfo regionInfo) throws IOException {
+  public WAL getWAL(RegionInfo regionInfo) throws IOException {
     return null;
   }
 
@@ -286,13 +282,13 @@ public class MockRegionServerServices implements RegionServerServices {
 
   @Override
   public boolean reportRegionStateTransition(TransitionCode code, long openSeqNum,
-      HRegionInfo... hris) {
+      RegionInfo... hris) {
     return false;
   }
 
   @Override
   public boolean reportRegionStateTransition(TransitionCode code,
-      HRegionInfo... hris) {
+      RegionInfo... hris) {
     return false;
   }
 
@@ -338,7 +334,7 @@ public class MockRegionServerServices implements RegionServerServices {
   }
 
   @Override
-  public EntityLock regionLock(List<HRegionInfo> regionInfos, String description, Abortable abort)
+  public EntityLock regionLock(List<RegionInfo> regionInfos, String description, Abortable abort)
       throws IOException {
     return null;
   }

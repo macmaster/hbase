@@ -75,14 +75,21 @@ public class MetricsClientSourceImpl extends BaseSourceImpl implements MetricsCl
   protected final CallTracker incrementTracker;
   @VisibleForTesting
   protected final CallTracker putTracker;
-  @VisibleForTesting
+  @VisibleForTesting 
   protected final CallTracker multiTracker;
-  @VisibleForTesting
+  @VisibleForTesting 
   protected final RunnerStats runnerStats;
 
-  @VisibleForTesting
+  @VisibleForTesting 
+  protected final MutableFastCounter hedgedReadOps;
+  @VisibleForTesting 
+  protected final MutableFastCounter hedgedReadWin;
+  @VisibleForTesting 
+  protected final MutableHistogram concurrentCallsPerServer;
+
+  @VisibleForTesting 
   protected final Map<String, RegionStats> regionStats;
-  @VisibleForTesting
+  @VisibleForTesting 
   protected final Function<String, RegionStats> newRegionStat = 
       path -> new RegionStats(registry, path, "region stats for " + path);
   
@@ -119,6 +126,10 @@ public class MetricsClientSourceImpl extends BaseSourceImpl implements MetricsCl
     this.incrementTracker = new CallTracker(this.registry, "Increment", "rpc metrics for INCREMENT calls");
     this.putTracker = new CallTracker(this.registry, "Put", "rpc metrics for PUT calls");
     this.multiTracker = new CallTracker(this.registry, "Multi", "rpc metrics for Multi-commit transaction calls");
+    
+    this.hedgedReadOps = this.registry.newCounter(name(this.getClass(), "hedgedReadOps", scope), 0l);
+    this.hedgedReadWin = this.registry.newCcounter(name(this.getClass(), "hedgedReadWin", scope), 0l);
+    this.concurrentCallsPerServer = registry.histogram(name(MetricsConnection.class, "concurrentCallsPerServer", scope));
 
     this.runnerStats = new RunnerStats(this.registry);
     this.regionStats = new ConcurrentHashMap<>();
@@ -256,6 +267,11 @@ public class MetricsClientSourceImpl extends BaseSourceImpl implements MetricsCl
   @Override
   /** Report RPC context to metrics system. */
   public void updateRpc(MethodDescriptor method, Message param, CallStats stats) {
+    int callsPerServer = stats.getConcurrentCallsPerServer();
+    if (callsPerServer > 0) {
+      concurrentCallsPerServerHist.update(callsPerServer);
+    }
+ 
     // this implementation is tied directly to protobuf implementation details. would be better
     // if we could dispatch based on something static, ie, request Message type.
     if (method.getService() == ClientService.getDescriptor()) {

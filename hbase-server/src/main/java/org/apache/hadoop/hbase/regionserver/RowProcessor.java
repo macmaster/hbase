@@ -22,17 +22,17 @@ import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
-import org.apache.hadoop.hbase.classification.InterfaceStability;
+import org.apache.yetus.audience.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceStability;
 import org.apache.hadoop.hbase.client.Durability;
 import org.apache.hadoop.hbase.client.Mutation;
 import org.apache.hadoop.hbase.HBaseInterfaceAudience;
-import org.apache.hadoop.hbase.regionserver.wal.WALEdit;
+import org.apache.hadoop.hbase.wal.WALEdit;
 
 import com.google.protobuf.Message;
 
 /**
- * Defines the procedure to atomically perform multiple scans and mutations
+ * Defines the procedures to atomically perform multiple scans and mutations
  * on a HRegion.
  *
  * This is invoked by {@link Region#processRowsWithLocks(RowProcessor)}.

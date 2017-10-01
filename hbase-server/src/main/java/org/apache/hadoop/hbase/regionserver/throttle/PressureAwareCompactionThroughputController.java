@@ -22,7 +22,7 @@ import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.HBaseInterfaceAudience;
 import org.apache.hadoop.hbase.ScheduledChore;
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceAudience;
 import org.apache.hadoop.hbase.regionserver.RegionServerServices;
 import org.apache.hadoop.hbase.regionserver.compactions.OffPeakHours;
 
@@ -37,7 +37,7 @@ import org.apache.hadoop.hbase.regionserver.compactions.OffPeakHours;
  * {@value #HBASE_HSTORE_COMPACTION_MAX_THROUGHPUT_HIGHER_BOUND}, using the formula &quot;lower +
  * (higer - lower) * compactionPressure&quot;, where compactionPressure is in range [0.0, 1.0]</li>
  * </ul>
- * @see org.apache.hadoop.hbase.regionserver.Store#getCompactionPressure()
+ * @see org.apache.hadoop.hbase.regionserver.HStore#getCompactionPressure()
  */
 @InterfaceAudience.LimitedPrivate(HBaseInterfaceAudience.CONFIG)
 public class PressureAwareCompactionThroughputController extends PressureAwareThroughputController {

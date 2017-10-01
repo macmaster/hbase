@@ -21,7 +21,7 @@ import java.io.IOException;
 import java.net.InetAddress;
 
 import org.apache.hadoop.hbase.CellScanner;
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceAudience;
 import org.apache.hadoop.hbase.io.ByteBufferPool;
 import org.apache.hadoop.hbase.ipc.RpcServer.CallCleanup;
 import org.apache.hadoop.hbase.shaded.com.google.protobuf.BlockingService;
@@ -33,6 +33,7 @@ import org.apache.htrace.TraceInfo;
 /**
  * Datastructure that holds all necessary to a method invocation and then afterward, carries the
  * result.
+ * @since 2.0.0
  */
 @InterfaceAudience.Private
 class NettyServerCall extends ServerCall<NettyServerRpcConnection> {

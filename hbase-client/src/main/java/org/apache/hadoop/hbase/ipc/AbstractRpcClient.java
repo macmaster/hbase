@@ -54,7 +54,6 @@ import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.ServerName;
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
 import org.apache.hadoop.hbase.client.CallStats;
 import org.apache.hadoop.hbase.client.MetricsConnection;
 import org.apache.hadoop.hbase.codec.Codec;
@@ -70,6 +69,8 @@ import org.apache.hadoop.io.compress.CompressionCodec;
 import org.apache.hadoop.ipc.RemoteException;
 import org.apache.hadoop.security.token.TokenIdentifier;
 import org.apache.hadoop.security.token.TokenSelector;
+
+import org.apache.yetus.audience.InterfaceAudience;
 
 /**
  * Provides the basics for a RpcClient implementation like configuration and Logging.
@@ -90,6 +91,7 @@ import org.apache.hadoop.security.token.TokenSelector;
  * outside the lock in {@link Call} and {@link HBaseRpcController} which means the implementations
  * of the callbacks are free to hold any lock.</li>
  * </ul>
+ * @since 2.0.0
  */
 @InterfaceAudience.Private
 public abstract class AbstractRpcClient<T extends RpcConnection> implements RpcClient {
@@ -416,6 +418,7 @@ public abstract class AbstractRpcClient<T extends RpcConnection> implements RpcC
       if (count > maxConcurrentCallsPerServer) {
         throw new ServerTooBusyException(addr, count);
       }
+      cs.setConcurrentCallsPerServer(count);
       T connection = getConnection(remoteId);
       connection.sendRequest(call, hrc);
     } catch (Exception e) {

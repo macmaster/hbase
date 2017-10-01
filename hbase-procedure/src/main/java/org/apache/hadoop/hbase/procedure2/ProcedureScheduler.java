@@ -23,7 +23,7 @@ import org.apache.hadoop.hbase.shaded.com.google.common.annotations.VisibleForTe
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceAudience;
 
 /**
  * Keep track of the runnable procedures
@@ -125,13 +125,13 @@ public interface ProcedureScheduler {
    * List lock queues.
    * @return the locks
    */
-  // TODO: This seems to be the wrong place to hang this method.
-  List<LockInfo> listLocks();
+  List<LockedResource> getLocks();
 
   /**
-   * @return {@link LockInfo} for resource of specified type & name. null if resource is not locked.
+   * @return {@link LockedResource} for resource of specified type & name. null if resource is not locked.
    */
-  LockInfo getLockInfoForResource(LockInfo.ResourceType resourceType, String resourceName);
+  LockedResource getLockResource(LockedResourceType resourceType, String resourceName);
+
   /**
    * Returns the number of elements in this queue.
    * @return the number of elements in this queue.

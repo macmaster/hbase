@@ -26,7 +26,7 @@ import java.util.UUID;
 import org.apache.hadoop.hbase.Cell;
 import org.apache.hadoop.hbase.CellUtil;
 import org.apache.hadoop.hbase.KeyValue;
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceAudience;
 import org.apache.hadoop.hbase.security.access.Permission;
 import org.apache.hadoop.hbase.security.visibility.CellVisibility;
 import org.apache.hadoop.hbase.util.Bytes;
@@ -34,10 +34,9 @@ import org.apache.hadoop.hbase.util.Bytes;
 /**
  * Performs Append operations on a single row.
  * <p>
- * Note that this operation does not appear atomic to readers. Appends are done
- * under a single row lock, so write operations to a row are synchronized, but
- * readers do not take row locks so get and scan operations can see this
- * operation partially completed.
+ * This operation ensures atomicty to readers. Appends are done
+ * under a single row lock, so write operations to a row are synchronized, and
+ * readers are guaranteed to see this operation fully completed.
  * <p>
  * To append to a set of columns of a row, instantiate an Append object with the
  * row to append to. At least one column to append must be specified using the

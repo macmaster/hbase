@@ -27,6 +27,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NavigableSet;
+import java.util.Optional;
+import java.util.OptionalInt;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.Cell;
@@ -48,17 +50,20 @@ import org.apache.hadoop.hbase.client.Scan;
 import org.apache.hadoop.hbase.client.Table;
 import org.apache.hadoop.hbase.coprocessor.CoprocessorHost;
 import org.apache.hadoop.hbase.coprocessor.ObserverContext;
+import org.apache.hadoop.hbase.coprocessor.RegionCoprocessor;
 import org.apache.hadoop.hbase.coprocessor.RegionCoprocessorEnvironment;
 import org.apache.hadoop.hbase.coprocessor.RegionObserver;
+import org.apache.hadoop.hbase.regionserver.HStore;
 import org.apache.hadoop.hbase.regionserver.InternalScanner;
 import org.apache.hadoop.hbase.regionserver.KeyValueScanner;
 import org.apache.hadoop.hbase.regionserver.ScanInfo;
 import org.apache.hadoop.hbase.regionserver.ScanType;
 import org.apache.hadoop.hbase.regionserver.Store;
 import org.apache.hadoop.hbase.regionserver.StoreScanner;
-import org.apache.hadoop.hbase.regionserver.wal.WALEdit;
+import org.apache.hadoop.hbase.regionserver.compactions.CompactionLifeCycleTracker;
 import org.apache.hadoop.hbase.testclassification.MediumTests;
 import org.apache.hadoop.hbase.testclassification.MiscTests;
+import org.apache.hadoop.hbase.wal.WALEdit;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -210,9 +215,14 @@ public class TestCoprocessorScanPolicy {
     EnvironmentEdgeManager.reset();
   }
 
-  public static class ScanObserver implements RegionObserver {
+  public static class ScanObserver implements RegionCoprocessor, RegionObserver {
     private Map<TableName, Long> ttls = new HashMap<>();
     private Map<TableName, Integer> versions = new HashMap<>();
+
+    @Override
+    public Optional<RegionObserver> getRegionObserver() {
+      return Optional.of(this);
+    }
 
     // lame way to communicate with the coprocessor,
     // since it is loaded by a different class loader
@@ -238,43 +248,44 @@ public class TestCoprocessorScanPolicy {
 
     @Override
     public InternalScanner preFlushScannerOpen(
-        final ObserverContext<RegionCoprocessorEnvironment> c,
-        Store store, List<KeyValueScanner> scanners, InternalScanner s) throws IOException {
+        final ObserverContext<RegionCoprocessorEnvironment> c, Store store,
+        List<KeyValueScanner> scanners, InternalScanner s, long readPoint) throws IOException {
+      HStore hs = (HStore) store;
       Long newTtl = ttls.get(store.getTableName());
       if (newTtl != null) {
         System.out.println("PreFlush:" + newTtl);
       }
       Integer newVersions = versions.get(store.getTableName());
-      ScanInfo oldSI = store.getScanInfo();
+      ScanInfo oldSI = hs.getScanInfo();
       ColumnFamilyDescriptor family = store.getColumnFamilyDescriptor();
       ScanInfo scanInfo = new ScanInfo(TEST_UTIL.getConfiguration(), family.getName(),
           family.getMinVersions(), newVersions == null ? family.getMaxVersions() : newVersions,
           newTtl == null ? oldSI.getTtl() : newTtl, family.getKeepDeletedCells(),
           family.getBlocksize(), oldSI.getTimeToPurgeDeletes(), oldSI.getComparator(), family.isNewVersionBehavior());
-      Scan scan = new Scan();
-      scan.setMaxVersions(newVersions == null ? oldSI.getMaxVersions() : newVersions);
-      return new StoreScanner(store, scanInfo, scan, scanners,
-          ScanType.COMPACT_RETAIN_DELETES, store.getSmallestReadPoint(),
+      return new StoreScanner(hs, scanInfo,
+          newVersions == null ? OptionalInt.empty() : OptionalInt.of(newVersions.intValue()),
+          scanners, ScanType.COMPACT_RETAIN_DELETES, store.getSmallestReadPoint(),
           HConstants.OLDEST_TIMESTAMP);
     }
 
     @Override
     public InternalScanner preCompactScannerOpen(
-        final ObserverContext<RegionCoprocessorEnvironment> c,
-        Store store, List<? extends KeyValueScanner> scanners, ScanType scanType,
-        long earliestPutTs, InternalScanner s) throws IOException {
+        final ObserverContext<RegionCoprocessorEnvironment> c, Store store,
+        List<? extends KeyValueScanner> scanners, ScanType scanType, long earliestPutTs,
+        InternalScanner s,CompactionLifeCycleTracker tracker, long readPoint) throws IOException {
+      HStore hs = (HStore) store;
       Long newTtl = ttls.get(store.getTableName());
       Integer newVersions = versions.get(store.getTableName());
-      ScanInfo oldSI = store.getScanInfo();
+      ScanInfo oldSI = hs.getScanInfo();
       ColumnFamilyDescriptor family = store.getColumnFamilyDescriptor();
       ScanInfo scanInfo = new ScanInfo(TEST_UTIL.getConfiguration(), family.getName(),
           family.getMinVersions(), newVersions == null ? family.getMaxVersions() : newVersions,
           newTtl == null ? oldSI.getTtl() : newTtl, family.getKeepDeletedCells(),
-          family.getBlocksize(), oldSI.getTimeToPurgeDeletes(), oldSI.getComparator(), family.isNewVersionBehavior());
-      Scan scan = new Scan();
-      scan.setMaxVersions(newVersions == null ? oldSI.getMaxVersions() : newVersions);
-      return new StoreScanner(store, scanInfo, scan, scanners, scanType,
-          store.getSmallestReadPoint(), earliestPutTs);
+          family.getBlocksize(), oldSI.getTimeToPurgeDeletes(), oldSI.getComparator(),
+          family.isNewVersionBehavior());
+      return new StoreScanner(hs, scanInfo,
+          newVersions == null ? OptionalInt.empty() : OptionalInt.of(newVersions.intValue()),
+          scanners, scanType, store.getSmallestReadPoint(), earliestPutTs);
     }
 
     @Override
@@ -283,15 +294,17 @@ public class TestCoprocessorScanPolicy {
         final NavigableSet<byte[]> targetCols, KeyValueScanner s, long readPt) throws IOException {
       TableName tn = store.getTableName();
       if (!tn.isSystemTable()) {
+        HStore hs = (HStore) store;
         Long newTtl = ttls.get(store.getTableName());
         Integer newVersions = versions.get(store.getTableName());
-        ScanInfo oldSI = store.getScanInfo();
+        ScanInfo oldSI = hs.getScanInfo();
         ColumnFamilyDescriptor family = store.getColumnFamilyDescriptor();
         ScanInfo scanInfo = new ScanInfo(TEST_UTIL.getConfiguration(), family.getName(),
             family.getMinVersions(), newVersions == null ? family.getMaxVersions() : newVersions,
             newTtl == null ? oldSI.getTtl() : newTtl, family.getKeepDeletedCells(),
-            family.getBlocksize(), oldSI.getTimeToPurgeDeletes(), oldSI.getComparator(), family.isNewVersionBehavior());
-        return new StoreScanner(store, scanInfo, scan, targetCols, readPt);
+            family.getBlocksize(), oldSI.getTimeToPurgeDeletes(), oldSI.getComparator(),
+            family.isNewVersionBehavior());
+        return new StoreScanner(hs, scanInfo, scan, targetCols, readPt);
       } else {
         return s;
       }

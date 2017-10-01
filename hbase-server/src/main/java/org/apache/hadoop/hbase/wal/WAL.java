@@ -19,23 +19,24 @@
 
 package org.apache.hadoop.hbase.wal;
 
-import org.apache.hadoop.hbase.shaded.com.google.common.annotations.VisibleForTesting;
-
 import java.io.Closeable;
 import java.io.IOException;
 import java.util.Map;
 import java.util.Set;
 
 import org.apache.hadoop.hbase.HConstants;
-import org.apache.hadoop.hbase.HRegionInfo;
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
-import org.apache.hadoop.hbase.classification.InterfaceStability;
-// imports we use from yet-to-be-moved regionsever.wal
+import org.apache.hadoop.hbase.client.RegionInfo;
 import org.apache.hadoop.hbase.regionserver.wal.CompressionContext;
 import org.apache.hadoop.hbase.regionserver.wal.FailedLogCloseException;
 import org.apache.hadoop.hbase.regionserver.wal.WALActionsListener;
 import org.apache.hadoop.hbase.regionserver.wal.WALCoprocessorHost;
-import org.apache.hadoop.hbase.regionserver.wal.WALEdit;
+import org.apache.hadoop.hbase.replication.regionserver.WALFileLengthProvider;
+import org.apache.yetus.audience.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceStability;
+
+import org.apache.hadoop.hbase.shaded.com.google.common.annotations.VisibleForTesting;
+
+// imports we use from yet-to-be-moved regionsever.wal
 
 /**
  * A Write Ahead Log (WAL) provides service for reading, writing waledits. This interface provides
@@ -46,7 +47,7 @@ import org.apache.hadoop.hbase.regionserver.wal.WALEdit;
  */
 @InterfaceAudience.Private
 @InterfaceStability.Evolving
-public interface WAL extends Closeable {
+public interface WAL extends Closeable, WALFileLengthProvider {
 
   /**
    * Registers WALActionsListener
@@ -67,7 +68,7 @@ public interface WAL extends Closeable {
    *
    * @return If lots of logs, flush the returned regions so next time through we
    *         can clean logs. Returns null if nothing to flush. Names are actual
-   *         region names as returned by {@link HRegionInfo#getEncodedName()}
+   *         region names as returned by {@link RegionInfo#getEncodedName()}
    */
   byte[][] rollWriter() throws FailedLogCloseException, IOException;
 
@@ -83,7 +84,7 @@ public interface WAL extends Closeable {
    *          been written to the current writer
    * @return If lots of logs, flush the returned regions so next time through we
    *         can clean logs. Returns null if nothing to flush. Names are actual
-   *         region names as returned by {@link HRegionInfo#getEncodedName()}
+   *         region names as returned by {@link RegionInfo#getEncodedName()}
    */
   byte[][] rollWriter(boolean force) throws FailedLogCloseException, IOException;
 
@@ -115,7 +116,7 @@ public interface WAL extends Closeable {
    * @return Returns a 'transaction id' and <code>key</code> will have the region edit/sequence id
    * in it.
    */
-  long append(HRegionInfo info, WALKey key, WALEdit edits, boolean inMemstore) throws IOException;
+  long append(RegionInfo info, WALKey key, WALEdit edits, boolean inMemstore) throws IOException;
 
   /**
    * updates the seuence number of a specific store.

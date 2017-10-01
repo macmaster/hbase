@@ -29,7 +29,7 @@ import java.util.function.Function;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.KeepDeletedCells;
 import org.apache.hadoop.hbase.MemoryCompactionPolicy;
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceAudience;
 import org.apache.hadoop.hbase.exceptions.DeserializationException;
 import org.apache.hadoop.hbase.exceptions.HBaseException;
 import org.apache.hadoop.hbase.io.compress.Compression;
@@ -41,6 +41,9 @@ import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.PrettyPrinter;
 import org.apache.hadoop.hbase.util.PrettyPrinter.Unit;
 
+/**
+ * @since 2.0.0
+ */
 @InterfaceAudience.Public
 public class ColumnFamilyDescriptorBuilder {
   // For future backward compatibility
@@ -417,6 +420,10 @@ public class ColumnFamilyDescriptorBuilder {
     return this;
   }
 
+  public String getNameAsString() {
+    return desc.getNameAsString();
+  }
+
   public ColumnFamilyDescriptorBuilder setBlockCacheEnabled(boolean value) {
     desc.setBlockCacheEnabled(value);
     return this;
@@ -465,6 +472,10 @@ public class ColumnFamilyDescriptorBuilder {
   public ColumnFamilyDescriptorBuilder setCompressionType(Compression.Algorithm value) {
     desc.setCompressionType(value);
     return this;
+  }
+
+  public Compression.Algorithm getCompressionType() {
+    return desc.getCompressionType();
   }
 
   public ColumnFamilyDescriptorBuilder setConfiguration(final String key, final String value) {
@@ -572,6 +583,11 @@ public class ColumnFamilyDescriptorBuilder {
     return this;
   }
 
+  public ColumnFamilyDescriptorBuilder setValue(final String key, final String value) {
+    desc.setValue(key, value);
+    return this;
+  }
+
   /**
    * An ModifyableFamilyDescriptor contains information about a column family such as the
    * number of versions, compression settings, etc.
@@ -607,7 +623,7 @@ public class ColumnFamilyDescriptorBuilder {
      */
     @InterfaceAudience.Private
     public ModifyableColumnFamilyDescriptor(final byte[] name) {
-      this(isLegalColumnFamilyName(name), getDefaultValuesBytes(), Collections.EMPTY_MAP);
+      this(isLegalColumnFamilyName(name), getDefaultValuesBytes(), Collections.emptyMap());
     }
 
     /**
@@ -1160,13 +1176,10 @@ public class ColumnFamilyDescriptorBuilder {
       if (this == obj) {
         return true;
       }
-      if (obj == null) {
-        return false;
+      if (obj instanceof ModifyableColumnFamilyDescriptor) {
+        return ColumnFamilyDescriptor.COMPARATOR.compare(this, (ModifyableColumnFamilyDescriptor) obj) == 0;
       }
-      if (!(obj instanceof ModifyableColumnFamilyDescriptor)) {
-        return false;
-      }
-      return compareTo((ModifyableColumnFamilyDescriptor) obj) == 0;
+      return false;
     }
 
     @Override
@@ -1188,7 +1201,7 @@ public class ColumnFamilyDescriptorBuilder {
      * @see #parseFrom(byte[])
      */
     private byte[] toByteArray() {
-      return ProtobufUtil.prependPBMagic(ProtobufUtil.convertToColumnFamilySchema(this)
+      return ProtobufUtil.prependPBMagic(ProtobufUtil.toColumnFamilySchema(this)
                       .toByteArray());
     }
 
@@ -1213,7 +1226,7 @@ public class ColumnFamilyDescriptorBuilder {
       } catch (IOException e) {
         throw new DeserializationException(e);
       }
-      return ProtobufUtil.convertToColumnDesc(cfs);
+      return ProtobufUtil.toColumnFamilyDescriptor(cfs);
     }
 
     @Override

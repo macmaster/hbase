@@ -25,12 +25,9 @@ import java.util.Map;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.Cell;
 import org.apache.hadoop.hbase.CellComparator;
+import org.apache.hadoop.hbase.CompareOperator;
 import org.apache.hadoop.hbase.HBaseInterfaceAudience;
 import org.apache.hadoop.hbase.HDFSBlocksDistribution;
-import org.apache.hadoop.hbase.HRegionInfo;
-import org.apache.hadoop.hbase.HTableDescriptor;
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
-import org.apache.hadoop.hbase.classification.InterfaceStability;
 import org.apache.hadoop.hbase.client.Append;
 import org.apache.hadoop.hbase.client.Delete;
 import org.apache.hadoop.hbase.client.Get;
@@ -38,6 +35,7 @@ import org.apache.hadoop.hbase.client.Increment;
 import org.apache.hadoop.hbase.client.IsolationLevel;
 import org.apache.hadoop.hbase.client.Mutation;
 import org.apache.hadoop.hbase.client.Put;
+import org.apache.hadoop.hbase.client.RegionInfo;
 import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.client.RowMutations;
 import org.apache.hadoop.hbase.client.Scan;
@@ -45,14 +43,17 @@ import org.apache.hadoop.hbase.client.TableDescriptor;
 import org.apache.hadoop.hbase.conf.ConfigurationObserver;
 import org.apache.hadoop.hbase.exceptions.FailedSanityCheckException;
 import org.apache.hadoop.hbase.filter.ByteArrayComparable;
-import org.apache.hadoop.hbase.filter.CompareFilter.CompareOp;
-import org.apache.hadoop.hbase.shaded.protobuf.generated.AdminProtos.GetRegionInfoResponse.CompactionState;
-import org.apache.hadoop.hbase.shaded.protobuf.generated.ClientProtos.CoprocessorServiceCall;
-import org.apache.hadoop.hbase.shaded.com.google.protobuf.Service;
+import org.apache.hadoop.hbase.regionserver.compactions.CompactionLifeCycleTracker;
+import org.apache.hadoop.hbase.security.User;
 import org.apache.hadoop.hbase.util.Pair;
 import org.apache.hadoop.hbase.wal.WALSplitter.MutationReplay;
+import org.apache.yetus.audience.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceStability;
 
 import org.apache.hadoop.hbase.shaded.com.google.common.annotations.VisibleForTesting;
+import org.apache.hadoop.hbase.shaded.com.google.protobuf.Service;
+import org.apache.hadoop.hbase.shaded.protobuf.generated.AdminProtos.GetRegionInfoResponse.CompactionState;
+import org.apache.hadoop.hbase.shaded.protobuf.generated.ClientProtos.CoprocessorServiceCall;
 
 /**
  * Regions store data for a certain region of a table.  It stores all columns
@@ -77,7 +78,7 @@ public interface Region extends ConfigurationObserver {
   // Region state
 
   /** @return region information for this region */
-  HRegionInfo getRegionInfo();
+  RegionInfo getRegionInfo();
 
   /** @return table descriptor for this region */
   TableDescriptor getTableDescriptor();
@@ -110,7 +111,7 @@ public interface Region extends ConfigurationObserver {
    * <p>Use with caution.  Exposed for use of fixup utilities.
    * @return a list of the Stores managed by this region
    */
-  List<Store> getStores();
+  List<? extends Store> getStores();
 
   /**
    * Return the Store for the given family
@@ -120,7 +121,7 @@ public interface Region extends ConfigurationObserver {
   Store getStore(byte[] family);
 
   /** @return list of store file names for the given families */
-  List<String> getStoreFileList(byte [][] columns);
+  List<String> getStoreFileList(byte[][] columns);
 
   /**
    * Check the region's underlying store files, open the files that have not
@@ -307,11 +308,11 @@ public interface Region extends ConfigurationObserver {
    *
    * Before calling this function make sure that a region operation has already been
    * started (the calling thread has already acquired the region-close-guard lock).
-   * 
+   *
    * NOTE: the boolean passed here has changed. It used to be a boolean that
    * stated whether or not to wait on the lock. Now it is whether it an exclusive
    * lock is requested.
-   * 
+   *
    * @param row The row actions will be performed against
    * @param readLock is the lock reader or writer. True indicates that a non-exclusive
    * lock is requested
@@ -370,14 +371,14 @@ public interface Region extends ConfigurationObserver {
    * @param row to check
    * @param family column family to check
    * @param qualifier column qualifier to check
-   * @param compareOp the comparison operator
+   * @param op the comparison operator
    * @param comparator
    * @param mutation
    * @param writeToWAL
    * @return true if mutation was applied, false otherwise
    * @throws IOException
    */
-  boolean checkAndMutate(byte [] row, byte [] family, byte [] qualifier, CompareOp compareOp,
+  boolean checkAndMutate(byte [] row, byte [] family, byte [] qualifier, CompareOperator op,
       ByteArrayComparable comparator, Mutation mutation, boolean writeToWAL) throws IOException;
 
   /**
@@ -388,14 +389,14 @@ public interface Region extends ConfigurationObserver {
    * @param row to check
    * @param family column family to check
    * @param qualifier column qualifier to check
-   * @param compareOp the comparison operator
+   * @param op the comparison operator
    * @param comparator
    * @param mutations
    * @param writeToWAL
    * @return true if mutations were applied, false otherwise
    * @throws IOException
    */
-  boolean checkAndRowMutate(byte [] row, byte [] family, byte [] qualifier, CompareOp compareOp,
+  boolean checkAndRowMutate(byte [] row, byte [] family, byte [] qualifier, CompareOperator op,
       ByteArrayComparable comparator, RowMutations mutations, boolean writeToWAL)
       throws IOException;
 
@@ -748,7 +749,7 @@ public interface Region extends ConfigurationObserver {
    * Trigger major compaction on all stores in the region.
    * <p>
    * Compaction will be performed asynchronously to this call by the RegionServer's
-   * CompactSplitThread. See also {@link Store#triggerMajorCompaction()}
+   * CompactSplitThread.
    * @throws IOException
    */
   void triggerMajorCompaction() throws IOException;
@@ -757,6 +758,18 @@ public interface Region extends ConfigurationObserver {
    * @return if a given region is in compaction now.
    */
   CompactionState getCompactionState();
+
+  /**
+   * Request compaction on this region.
+   */
+  void requestCompaction(String why, int priority, CompactionLifeCycleTracker tracker, User user)
+      throws IOException;
+
+  /**
+   * Request compaction for the given family
+   */
+  void requestCompaction(byte[] family, String why, int priority,
+      CompactionLifeCycleTracker tracker, User user) throws IOException;
 
   /** Wait for all current flushes and compactions of the region to complete */
   void waitForFlushesAndCompactions();

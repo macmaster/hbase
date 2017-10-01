@@ -18,10 +18,10 @@
 package org.apache.hadoop.hbase.regionserver.wal;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
-import static org.junit.Assert.assertNotEquals;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -45,18 +45,17 @@ import org.apache.hadoop.hbase.HBaseConfiguration;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.HColumnDescriptor;
 import org.apache.hadoop.hbase.HConstants;
-import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.KeyValue;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.Get;
 import org.apache.hadoop.hbase.client.Put;
+import org.apache.hadoop.hbase.client.RegionInfo;
+import org.apache.hadoop.hbase.client.RegionInfoBuilder;
 import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.coprocessor.CoprocessorHost;
-import org.apache.hadoop.hbase.coprocessor.SampleRegionWALObserver;
-import org.apache.hadoop.hbase.regionserver.ChunkCreator;
+import org.apache.hadoop.hbase.coprocessor.SampleRegionWALCoprocessor;
 import org.apache.hadoop.hbase.regionserver.HRegion;
-import org.apache.hadoop.hbase.regionserver.MemStoreLABImpl;
 import org.apache.hadoop.hbase.regionserver.MultiVersionConcurrencyControl;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.EnvironmentEdge;
@@ -65,6 +64,7 @@ import org.apache.hadoop.hbase.util.FSUtils;
 import org.apache.hadoop.hbase.util.Threads;
 import org.apache.hadoop.hbase.wal.AbstractFSWALProvider;
 import org.apache.hadoop.hbase.wal.WAL;
+import org.apache.hadoop.hbase.wal.WALEdit;
 import org.apache.hadoop.hbase.wal.WALKey;
 import org.junit.AfterClass;
 import org.junit.Before;
@@ -111,7 +111,7 @@ public abstract class AbstractTestFSWAL {
     TEST_UTIL.getConfiguration().setInt("dfs.client.block.recovery.retries", 1);
     TEST_UTIL.getConfiguration().setInt("hbase.ipc.client.connection.maxidletime", 500);
     TEST_UTIL.getConfiguration().set(CoprocessorHost.WAL_COPROCESSOR_CONF_KEY,
-      SampleRegionWALObserver.class.getName());
+      SampleRegionWALCoprocessor.class.getName());
     TEST_UTIL.startMiniDFSCluster(3);
 
     CONF = TEST_UTIL.getConfiguration();
@@ -142,7 +142,7 @@ public abstract class AbstractTestFSWAL {
       wal = newWAL(FS, FSUtils.getWALRootDir(CONF), DIR.toString(), HConstants.HREGION_OLDLOGDIR_NAME,
         CONF, null, true, null, null);
       WALCoprocessorHost host = wal.getCoprocessorHost();
-      Coprocessor c = host.findCoprocessor(SampleRegionWALObserver.class.getName());
+      Coprocessor c = host.findCoprocessor(SampleRegionWALCoprocessor.class);
       assertNotNull(c);
     } finally {
       if (wal != null) {
@@ -151,7 +151,7 @@ public abstract class AbstractTestFSWAL {
     }
   }
 
-  protected void addEdits(WAL log, HRegionInfo hri, HTableDescriptor htd, int times,
+  protected void addEdits(WAL log, RegionInfo hri, HTableDescriptor htd, int times,
       MultiVersionConcurrencyControl mvcc, NavigableMap<byte[], Integer> scopes)
       throws IOException {
     final byte[] row = Bytes.toBytes("row");
@@ -251,10 +251,14 @@ public abstract class AbstractTestFSWAL {
         new HTableDescriptor(TableName.valueOf("t1")).addFamily(new HColumnDescriptor("row"));
     HTableDescriptor t2 =
         new HTableDescriptor(TableName.valueOf("t2")).addFamily(new HColumnDescriptor("row"));
-    HRegionInfo hri1 =
-        new HRegionInfo(t1.getTableName(), HConstants.EMPTY_START_ROW, HConstants.EMPTY_END_ROW);
-    HRegionInfo hri2 =
-        new HRegionInfo(t2.getTableName(), HConstants.EMPTY_START_ROW, HConstants.EMPTY_END_ROW);
+    RegionInfo hri1 = RegionInfoBuilder.newBuilder(t1.getTableName())
+        .setStartKey(HConstants.EMPTY_START_ROW)
+        .setEndKey(HConstants.EMPTY_END_ROW)
+        .build();
+    RegionInfo hri2 = RegionInfoBuilder.newBuilder(t2.getTableName())
+        .setStartKey(HConstants.EMPTY_START_ROW)
+        .setEndKey(HConstants.EMPTY_END_ROW)
+        .build();
     // add edits and roll the wal
     MultiVersionConcurrencyControl mvcc = new MultiVersionConcurrencyControl();
     NavigableMap<byte[], Integer> scopes1 = new TreeMap<>(Bytes.BYTES_COMPARATOR);
@@ -355,7 +359,7 @@ public abstract class AbstractTestFSWAL {
   public void testFlushSequenceIdIsGreaterThanAllEditsInHFile() throws IOException {
     String testName = currentTest.getMethodName();
     final TableName tableName = TableName.valueOf(testName);
-    final HRegionInfo hri = new HRegionInfo(tableName);
+    final RegionInfo hri = RegionInfoBuilder.newBuilder(tableName).build();
     final byte[] rowName = tableName.getName();
     final HTableDescriptor htd = new HTableDescriptor(tableName);
     htd.addFamily(new HColumnDescriptor("f"));
@@ -409,7 +413,7 @@ public abstract class AbstractTestFSWAL {
       // Now make appends run slow.
       goslow.set(true);
       for (int i = 0; i < countPerFamily; i++) {
-        final HRegionInfo info = region.getRegionInfo();
+        final RegionInfo info = region.getRegionInfo();
         final WALKey logkey = new WALKey(info.getEncodedNameAsBytes(), tableName,
             System.currentTimeMillis(), clusterIds, -1, -1, region.getMVCC(), scopes);
         wal.append(info, logkey, edits, true);

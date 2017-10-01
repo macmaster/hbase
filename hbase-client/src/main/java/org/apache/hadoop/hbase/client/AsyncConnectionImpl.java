@@ -40,7 +40,7 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.MasterNotRunningException;
 import org.apache.hadoop.hbase.ServerName;
 import org.apache.hadoop.hbase.TableName;
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceAudience;
 import org.apache.hadoop.hbase.ipc.HBaseRpcController;
 import org.apache.hadoop.hbase.ipc.RpcClient;
 import org.apache.hadoop.hbase.ipc.RpcClientFactory;
@@ -296,5 +296,16 @@ class AsyncConnectionImpl implements AsyncConnection {
         return new AsyncHBaseAdmin(rawAdmin, pool);
       }
     };
+  }
+
+  @Override
+  public AsyncBufferedMutatorBuilder getBufferedMutatorBuilder(TableName tableName) {
+    return new AsyncBufferedMutatorBuilderImpl(connConf, getRawTableBuilder(tableName));
+  }
+
+  @Override
+  public AsyncBufferedMutatorBuilder getBufferedMutatorBuilder(TableName tableName,
+      ExecutorService pool) {
+    return new AsyncBufferedMutatorBuilderImpl(connConf, getTableBuilder(tableName, pool));
   }
 }

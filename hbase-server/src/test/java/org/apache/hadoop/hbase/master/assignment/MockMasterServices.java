@@ -24,19 +24,20 @@ import java.util.NavigableMap;
 import java.util.SortedSet;
 
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.CoordinatedStateManager;
-import org.apache.hadoop.hbase.HColumnDescriptor;
-import org.apache.hadoop.hbase.HRegionInfo;
-import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.ServerLoad;
 import org.apache.hadoop.hbase.ServerName;
 import org.apache.hadoop.hbase.TableDescriptors;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.YouAreDeadException;
 import org.apache.hadoop.hbase.client.ClusterConnection;
+import org.apache.hadoop.hbase.client.ColumnFamilyDescriptorBuilder;
 import org.apache.hadoop.hbase.client.HConnectionTestingUtility;
+import org.apache.hadoop.hbase.client.RegionInfo;
+import org.apache.hadoop.hbase.client.RegionInfoBuilder;
+import org.apache.hadoop.hbase.client.TableDescriptor;
+import org.apache.hadoop.hbase.client.TableDescriptorBuilder;
 import org.apache.hadoop.hbase.master.LoadBalancer;
 import org.apache.hadoop.hbase.master.MasterFileSystem;
 import org.apache.hadoop.hbase.master.MasterServices;
@@ -54,6 +55,11 @@ import org.apache.hadoop.hbase.procedure2.ProcedureExecutor;
 import org.apache.hadoop.hbase.procedure2.store.NoopProcedureStore;
 import org.apache.hadoop.hbase.procedure2.store.ProcedureStore;
 import org.apache.hadoop.hbase.security.Superusers;
+import org.apache.hadoop.hbase.util.FSUtils;
+import org.mockito.Mockito;
+import org.mockito.invocation.InvocationOnMock;
+import org.mockito.stubbing.Answer;
+
 import org.apache.hadoop.hbase.shaded.com.google.protobuf.RpcController;
 import org.apache.hadoop.hbase.shaded.com.google.protobuf.ServiceException;
 import org.apache.hadoop.hbase.shaded.protobuf.ProtobufUtil;
@@ -66,10 +72,6 @@ import org.apache.hadoop.hbase.shaded.protobuf.generated.ClientProtos.MutateResp
 import org.apache.hadoop.hbase.shaded.protobuf.generated.ClientProtos.RegionAction;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.ClientProtos.RegionActionResult;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.ClientProtos.ResultOrException;
-import org.apache.hadoop.hbase.util.FSUtils;
-import org.mockito.Mockito;
-import org.mockito.invocation.InvocationOnMock;
-import org.mockito.stubbing.Answer;
 
 /**
  * A mocked master services.
@@ -156,7 +158,7 @@ public class MockMasterServices extends MockNoopMasterServices {
     this.connection =
         HConnectionTestingUtility.getMockedConnectionAndDecorate(getConfiguration(),
           Mockito.mock(AdminProtos.AdminService.BlockingInterface.class), ri, MOCK_MASTER_SERVERNAME,
-          HRegionInfo.FIRST_META_REGIONINFO);
+          RegionInfoBuilder.FIRST_META_REGIONINFO);
     // Set hbase.rootdir into test dir.
     Path rootdir = FSUtils.getRootDir(getConfiguration());
     FSUtils.setRootDir(getConfiguration(), rootdir);
@@ -291,7 +293,7 @@ public class MockMasterServices extends MockNoopMasterServices {
     }
 
     @Override
-    public void updateRegionLocation(HRegionInfo regionInfo, State state, ServerName regionLocation,
+    public void updateRegionLocation(RegionInfo regionInfo, State state, ServerName regionLocation,
         ServerName lastHost, long openSeqNum, long pid) throws IOException {
     }
   }
@@ -300,36 +302,36 @@ public class MockMasterServices extends MockNoopMasterServices {
   public TableDescriptors getTableDescriptors() {
     return new TableDescriptors() {
       @Override
-      public HTableDescriptor remove(TableName tablename) throws IOException {
+      public TableDescriptor remove(TableName tablename) throws IOException {
         // noop
         return null;
       }
 
       @Override
-      public Map<String, HTableDescriptor> getAll() throws IOException {
+      public Map<String, TableDescriptor> getAll() throws IOException {
         // noop
         return null;
       }
 
-      @Override public Map<String, HTableDescriptor> getAllDescriptors() throws IOException {
+      @Override public Map<String, TableDescriptor> getAllDescriptors() throws IOException {
         // noop
         return null;
       }
 
       @Override
-      public HTableDescriptor get(TableName tablename) throws IOException {
-        HTableDescriptor htd = new HTableDescriptor(tablename);
-        htd.addFamily(new HColumnDescriptor(DEFAULT_COLUMN_FAMILY_NAME));
-        return htd;
+      public TableDescriptor get(TableName tablename) throws IOException {
+        TableDescriptorBuilder builder = TableDescriptorBuilder.newBuilder(tablename);
+        builder.addColumnFamily(ColumnFamilyDescriptorBuilder.of(DEFAULT_COLUMN_FAMILY_NAME));
+        return builder.build();
       }
 
       @Override
-      public Map<String, HTableDescriptor> getByNamespace(String name) throws IOException {
+      public Map<String, TableDescriptor> getByNamespace(String name) throws IOException {
         return null;
       }
 
       @Override
-      public void add(HTableDescriptor htd) throws IOException {
+      public void add(TableDescriptor htd) throws IOException {
         // noop
       }
 

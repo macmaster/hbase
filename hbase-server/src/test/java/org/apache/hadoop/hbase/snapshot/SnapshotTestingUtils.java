@@ -22,8 +22,8 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import java.io.IOException;
-import java.util.Collections;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -33,49 +33,50 @@ import java.util.TreeSet;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.FSDataOutputStream;
-import org.apache.hadoop.fs.FileSystem;
-import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FSDataInputStream;
+import org.apache.hadoop.fs.FSDataOutputStream;
+import org.apache.hadoop.fs.FileStatus;
+import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.PathFilter;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
-import org.apache.hadoop.hbase.HColumnDescriptor;
 import org.apache.hadoop.hbase.HConstants;
-import org.apache.hadoop.hbase.HRegionInfo;
-import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.TableNotEnabledException;
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
 import org.apache.hadoop.hbase.client.Admin;
-import org.apache.hadoop.hbase.client.SnapshotType;
 import org.apache.hadoop.hbase.client.BufferedMutator;
+import org.apache.hadoop.hbase.client.ColumnFamilyDescriptorBuilder;
 import org.apache.hadoop.hbase.client.Durability;
 import org.apache.hadoop.hbase.client.Put;
-import org.apache.hadoop.hbase.client.Table;
-import org.apache.hadoop.hbase.errorhandling.ForeignExceptionDispatcher;
+import org.apache.hadoop.hbase.client.RegionInfo;
+import org.apache.hadoop.hbase.client.RegionInfoBuilder;
 import org.apache.hadoop.hbase.client.RegionReplicaUtil;
+import org.apache.hadoop.hbase.client.SnapshotDescription;
+import org.apache.hadoop.hbase.client.SnapshotType;
+import org.apache.hadoop.hbase.client.Table;
+import org.apache.hadoop.hbase.client.TableDescriptor;
+import org.apache.hadoop.hbase.client.TableDescriptorBuilder;
+import org.apache.hadoop.hbase.errorhandling.ForeignExceptionDispatcher;
 import org.apache.hadoop.hbase.io.HFileLink;
 import org.apache.hadoop.hbase.master.HMaster;
 import org.apache.hadoop.hbase.master.MasterFileSystem;
 import org.apache.hadoop.hbase.mob.MobUtils;
-import org.apache.hadoop.hbase.shaded.protobuf.ProtobufUtil;
-import org.apache.hadoop.hbase.shaded.protobuf.generated.HBaseProtos;
-import org.apache.hadoop.hbase.client.SnapshotDescription;
-import org.apache.hadoop.hbase.shaded.protobuf.generated.HBaseProtos.RegionInfo;
-import org.apache.hadoop.hbase.shaded.protobuf.generated.SnapshotProtos;
-import org.apache.hadoop.hbase.shaded.protobuf.generated.SnapshotProtos.SnapshotRegionManifest;
-import org.apache.hadoop.hbase.shaded.protobuf.generated.MasterProtos.IsSnapshotDoneRequest;
-import org.apache.hadoop.hbase.shaded.protobuf.generated.MasterProtos.IsSnapshotDoneResponse;
 import org.apache.hadoop.hbase.regionserver.HRegionFileSystem;
 import org.apache.hadoop.hbase.regionserver.HRegionServer;
 import org.apache.hadoop.hbase.regionserver.Region;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.FSTableDescriptors;
-import org.apache.hadoop.hbase.util.FSVisitor;
 import org.apache.hadoop.hbase.util.FSUtils;
+import org.apache.hadoop.hbase.util.FSVisitor;
 import org.apache.hadoop.hbase.util.MD5Hash;
+import org.apache.yetus.audience.InterfaceAudience;
 import org.junit.Assert;
+
+import org.apache.hadoop.hbase.shaded.protobuf.ProtobufUtil;
+import org.apache.hadoop.hbase.shaded.protobuf.generated.MasterProtos.IsSnapshotDoneRequest;
+import org.apache.hadoop.hbase.shaded.protobuf.generated.MasterProtos.IsSnapshotDoneResponse;
+import org.apache.hadoop.hbase.shaded.protobuf.generated.SnapshotProtos;
+import org.apache.hadoop.hbase.shaded.protobuf.generated.SnapshotProtos.SnapshotRegionManifest;
 
 import com.google.protobuf.ServiceException;
 
@@ -222,7 +223,7 @@ public final class SnapshotTestingUtils {
       SnapshotReferenceUtil.visitRegionStoreFiles(regionManifest,
           new SnapshotReferenceUtil.StoreFileVisitor() {
         @Override
-        public void storeFile(final HRegionInfo regionInfo, final String family,
+        public void storeFile(final RegionInfo regionInfo, final String family,
               final SnapshotRegionManifest.StoreFile storeFile) throws IOException {
           snapshotFamilies.add(Bytes.toBytes(family));
         }
@@ -244,7 +245,7 @@ public final class SnapshotTestingUtils {
     }
 
     // check the region snapshot for all the regions
-    List<HRegionInfo> regions = admin.getTableRegions(tableName);
+    List<RegionInfo> regions = admin.getRegions(tableName);
     // remove the non-default regions
     RegionReplicaUtil.removeNonDefaultRegions(regions);
     boolean hasMob = regionManifests.containsKey(MobUtils.getMobRegionInfo(tableName)
@@ -256,7 +257,7 @@ public final class SnapshotTestingUtils {
       // region manifest. we should exclude the parent regions.
       int regionCountExclusiveSplitParent = 0;
       for (SnapshotRegionManifest snapshotRegionManifest : regionManifests.values()) {
-        HRegionInfo hri = HRegionInfo.convert(snapshotRegionManifest.getRegionInfo());
+        RegionInfo hri = ProtobufUtil.toRegionInfo(snapshotRegionManifest.getRegionInfo());
         if (hri.isOffline() && (hri.isSplit() || hri.isSplitParent())) {
           continue;
         }
@@ -266,7 +267,7 @@ public final class SnapshotTestingUtils {
     }
 
     // Verify Regions (redundant check, see MasterSnapshotVerifier)
-    for (HRegionInfo info : regions) {
+    for (RegionInfo info : regions) {
       String regionName = info.getEncodedName();
       assertTrue("Missing region name: '" + regionName + "'", regionManifests.containsKey(regionName));
     }
@@ -450,7 +451,7 @@ public final class SnapshotTestingUtils {
     SnapshotReferenceUtil.visitTableStoreFiles(conf, fs, snapshotDir, snapshotDesc,
         new SnapshotReferenceUtil.StoreFileVisitor() {
       @Override
-      public void storeFile(final HRegionInfo regionInfo, final String family,
+      public void storeFile(final RegionInfo regionInfo, final String family,
             final SnapshotRegionManifest.StoreFile storeFile) throws IOException {
         String region = regionInfo.getEncodedName();
         String hfile = storeFile.getName();
@@ -478,11 +479,11 @@ public final class SnapshotTestingUtils {
     private final Path rootDir;
 
     static class RegionData {
-      public HRegionInfo hri;
+      public RegionInfo hri;
       public Path tableDir;
       public Path[] files;
 
-      public RegionData(final Path tableDir, final HRegionInfo hri, final int nfiles) {
+      public RegionData(final Path tableDir, final RegionInfo hri, final int nfiles) {
         this.tableDir = tableDir;
         this.hri = hri;
         this.files = new Path[nfiles];
@@ -492,7 +493,7 @@ public final class SnapshotTestingUtils {
     public static class SnapshotBuilder {
       private final RegionData[] tableRegions;
       private final SnapshotProtos.SnapshotDescription desc;
-      private final HTableDescriptor htd;
+      private final TableDescriptor htd;
       private final Configuration conf;
       private final FileSystem fs;
       private final Path rootDir;
@@ -500,7 +501,7 @@ public final class SnapshotTestingUtils {
       private int snapshotted = 0;
 
       public SnapshotBuilder(final Configuration conf, final FileSystem fs,
-          final Path rootDir, final HTableDescriptor htd,
+          final Path rootDir, final TableDescriptor htd,
           final SnapshotProtos.SnapshotDescription desc, final RegionData[] tableRegions)
           throws IOException {
         this.fs = fs;
@@ -514,7 +515,7 @@ public final class SnapshotTestingUtils {
           .createTableDescriptorForTableDirectory(snapshotDir, htd, false);
       }
 
-      public HTableDescriptor getTableDescriptor() {
+      public TableDescriptor getTableDescriptor() {
         return this.htd;
       }
 
@@ -680,11 +681,11 @@ public final class SnapshotTestingUtils {
 
     private SnapshotBuilder createSnapshot(final String snapshotName, final String tableName,
         final int numRegions, final int version) throws IOException {
-      HTableDescriptor htd = createHtd(tableName);
+      TableDescriptor htd = createHtd(tableName);
       RegionData[] regions = createTable(htd, numRegions);
 
       SnapshotProtos.SnapshotDescription desc = SnapshotProtos.SnapshotDescription.newBuilder()
-        .setTable(htd.getNameAsString())
+        .setTable(htd.getTableName().getNameAsString())
         .setName(snapshotName)
         .setVersion(version)
         .build();
@@ -694,13 +695,13 @@ public final class SnapshotTestingUtils {
       return new SnapshotBuilder(conf, fs, rootDir, htd, desc, regions);
     }
 
-    public HTableDescriptor createHtd(final String tableName) {
-      HTableDescriptor htd = new HTableDescriptor(TableName.valueOf(tableName));
-      htd.addFamily(new HColumnDescriptor(TEST_FAMILY));
-      return htd;
+    public TableDescriptor createHtd(final String tableName) {
+      return TableDescriptorBuilder.newBuilder(TableName.valueOf(tableName))
+              .addColumnFamily(ColumnFamilyDescriptorBuilder.of(TEST_FAMILY))
+              .build();
     }
 
-    private RegionData[] createTable(final HTableDescriptor htd, final int nregions)
+    private RegionData[] createTable(final TableDescriptor htd, final int nregions)
         throws IOException {
       Path tableDir = FSUtils.getTableDir(rootDir, htd.getTableName());
       new FSTableDescriptors(conf).createTableDescriptorForTableDirectory(tableDir, htd, false);
@@ -712,7 +713,10 @@ public final class SnapshotTestingUtils {
         byte[] endKey = Bytes.toBytes(1 + i * 2);
 
         // First region, simple with one plain hfile.
-        HRegionInfo hri = new HRegionInfo(htd.getTableName(), startKey, endKey);
+        RegionInfo hri = RegionInfoBuilder.newBuilder(htd.getTableName())
+            .setStartKey(startKey)
+            .setEndKey(endKey)
+            .build();
         HRegionFileSystem rfs = HRegionFileSystem.createRegionOnFileSystem(conf, fs, tableDir, hri);
         regions[i] = new RegionData(tableDir, hri, 3);
         for (int j = 0; j < regions[i].files.length; ++j) {
@@ -724,7 +728,7 @@ public final class SnapshotTestingUtils {
         // This region contains a reference to the hfile in the first region.
         startKey = Bytes.toBytes(2 + i * 2);
         endKey = Bytes.toBytes(3 + i * 2);
-        hri = new HRegionInfo(htd.getTableName());
+        hri = RegionInfoBuilder.newBuilder(htd.getTableName()).build();
         rfs = HRegionFileSystem.createRegionOnFileSystem(conf, fs, tableDir, hri);
         regions[i+1] = new RegionData(tableDir, hri, regions[i].files.length);
         for (int j = 0; j < regions[i].files.length; ++j) {
@@ -755,7 +759,7 @@ public final class SnapshotTestingUtils {
                                             final TableName tableName)
       throws IOException, InterruptedException {
     HRegionServer rs = util.getRSForFirstRegionInTable(tableName);
-    List<Region> onlineRegions = rs.getOnlineRegions(tableName);
+    List<Region> onlineRegions = rs.getRegions(tableName);
     for (Region region : onlineRegions) {
       region.waitForFlushesAndCompactions();
     }
@@ -766,14 +770,15 @@ public final class SnapshotTestingUtils {
   public static void createTable(final HBaseTestingUtility util, final TableName tableName,
       int regionReplication, int nRegions, final byte[]... families)
       throws IOException, InterruptedException {
-    HTableDescriptor htd = new HTableDescriptor(tableName);
-    htd.setRegionReplication(regionReplication);
+    TableDescriptorBuilder builder
+      = TableDescriptorBuilder
+          .newBuilder(tableName)
+          .setRegionReplication(regionReplication);
     for (byte[] family : families) {
-      HColumnDescriptor hcd = new HColumnDescriptor(family);
-      htd.addFamily(hcd);
+      builder.addColumnFamily(ColumnFamilyDescriptorBuilder.of(family));
     }
     byte[][] splitKeys = getSplitKeys(nRegions);
-    util.createTable(htd, splitKeys);
+    util.createTable(builder.build(), splitKeys);
     assertEquals((splitKeys.length + 1) * regionReplication,
         util.getAdmin().getTableRegions(tableName).size());
   }
@@ -883,12 +888,12 @@ public final class SnapshotTestingUtils {
 
   public static void verifyReplicasCameOnline(TableName tableName, Admin admin,
       int regionReplication) throws IOException {
-    List<HRegionInfo> regions = admin.getTableRegions(tableName);
-    HashSet<HRegionInfo> set = new HashSet<>();
-    for (HRegionInfo hri : regions) {
+    List<RegionInfo> regions = admin.getRegions(tableName);
+    HashSet<RegionInfo> set = new HashSet<>();
+    for (RegionInfo hri : regions) {
       set.add(RegionReplicaUtil.getRegionInfoForDefaultReplica(hri));
       for (int i = 0; i < regionReplication; i++) {
-        HRegionInfo replica = RegionReplicaUtil.getRegionInfoForReplica(hri, i);
+        RegionInfo replica = RegionReplicaUtil.getRegionInfoForReplica(hri, i);
         if (!regions.contains(replica)) {
           Assert.fail(replica + " is not contained in the list of online regions");
         }

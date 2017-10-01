@@ -40,9 +40,9 @@ import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.CellComparator;
 import org.apache.hadoop.hbase.CellUtil;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
-import org.apache.hadoop.hbase.HColumnDescriptor;
 import org.apache.hadoop.hbase.KeyValue;
 import org.apache.hadoop.hbase.KeyValueUtil;
+import org.apache.hadoop.hbase.client.ColumnFamilyDescriptorBuilder;
 import org.apache.hadoop.hbase.client.Scan;
 import org.apache.hadoop.hbase.io.hfile.BlockCache;
 import org.apache.hadoop.hbase.io.hfile.CacheConfig;
@@ -200,7 +200,7 @@ public class TestCompoundBloomFilter {
 
   private void readStoreFile(int t, BloomType bt, List<KeyValue> kvs,
       Path sfPath) throws IOException {
-    StoreFile sf = new HStoreFile(fs, sfPath, conf, cacheConf, bt, true);
+    HStoreFile sf = new HStoreFile(fs, sfPath, conf, cacheConf, bt, true);
     sf.initReader();
     StoreFileReader r = sf.getReader();
     final boolean pread = true; // does not really matter
@@ -288,10 +288,9 @@ public class TestCompoundBloomFilter {
       byte[] qualifier) {
     Scan scan = new Scan().withStartRow(row).withStopRow(row, true);
     scan.addColumn(Bytes.toBytes(RandomKeyValueUtil.COLUMN_FAMILY_NAME), qualifier);
-    Store store = mock(Store.class);
-    HColumnDescriptor hcd = mock(HColumnDescriptor.class);
-    when(hcd.getName()).thenReturn(Bytes.toBytes(RandomKeyValueUtil.COLUMN_FAMILY_NAME));
-    when(store.getColumnFamilyDescriptor()).thenReturn(hcd);
+    HStore store = mock(HStore.class);
+    when(store.getColumnFamilyDescriptor())
+        .thenReturn(ColumnFamilyDescriptorBuilder.of(RandomKeyValueUtil.COLUMN_FAMILY_NAME));
     return scanner.shouldUseScanner(scan, store, Long.MIN_VALUE);
   }
 

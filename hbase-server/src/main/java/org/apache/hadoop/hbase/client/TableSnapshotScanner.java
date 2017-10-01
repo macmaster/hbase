@@ -30,11 +30,9 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.CellUtil;
-import org.apache.hadoop.hbase.HRegionInfo;
-import org.apache.hadoop.hbase.HTableDescriptor;
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
 import org.apache.hadoop.hbase.snapshot.RestoreSnapshotHelper;
 import org.apache.hadoop.hbase.util.FSUtils;
+import org.apache.yetus.audience.InterfaceAudience;
 
 /**
  * A Scanner which performs a scan over snapshot files. Using this class requires copying the
@@ -44,7 +42,7 @@ import org.apache.hadoop.hbase.util.FSUtils;
  * <p>
  * This also allows one to run the scan from an
  * online or offline hbase cluster. The snapshot files can be exported by using the
- * {@link org.apache.hadoop.hbase.snapshot.ExportSnapshot} tool,
+ * org.apache.hadoop.hbase.snapshot.ExportSnapshot tool,
  * to a pure-hdfs cluster, and this scanner can be used to
  * run the scan directly over the snapshot files. The snapshot should not be deleted while there
  * are open scanners reading from snapshot files.
@@ -61,9 +59,9 @@ import org.apache.hadoop.hbase.util.FSUtils;
  * snapshot files, the job has to be run as the HBase user or the user must have group or other
  * priviledges in the filesystem (See HBASE-8369). Note that, given other users access to read from
  * snapshot/data files will completely circumvent the access control enforced by HBase.
- * @see org.apache.hadoop.hbase.mapreduce.TableSnapshotInputFormat
+ * See org.apache.hadoop.hbase.mapreduce.TableSnapshotInputFormat.
  */
-@InterfaceAudience.Public
+@InterfaceAudience.Private
 public class TableSnapshotScanner extends AbstractClientScanner {
 
   private static final Log LOG = LogFactory.getLog(TableSnapshotScanner.class);
@@ -74,8 +72,8 @@ public class TableSnapshotScanner extends AbstractClientScanner {
   private Path rootDir;
   private Path restoreDir;
   private Scan scan;
-  private ArrayList<HRegionInfo> regions;
-  private HTableDescriptor htd;
+  private ArrayList<RegionInfo> regions;
+  private TableDescriptor htd;
 
   private ClientSideRegionScanner currentRegionScanner  = null;
   private int currentRegion = -1;
@@ -122,11 +120,11 @@ public class TableSnapshotScanner extends AbstractClientScanner {
     final RestoreSnapshotHelper.RestoreMetaChanges meta =
       RestoreSnapshotHelper.copySnapshotForScanner(
         conf, fs, rootDir, restoreDir, snapshotName);
-    final List<HRegionInfo> restoredRegions = meta.getRegionsToAdd();
+    final List<RegionInfo> restoredRegions = meta.getRegionsToAdd();
 
     htd = meta.getTableDescriptor();
     regions = new ArrayList<>(restoredRegions.size());
-    for (HRegionInfo hri : restoredRegions) {
+    for (RegionInfo hri : restoredRegions) {
       if (hri.isOffline() && (hri.isSplit() || hri.isSplitParent())) {
         continue;
       }
@@ -137,7 +135,7 @@ public class TableSnapshotScanner extends AbstractClientScanner {
     }
 
     // sort for regions according to startKey.
-    Collections.sort(regions);
+    Collections.sort(regions, RegionInfo.COMPARATOR);
     initScanMetrics(scan);
   }
 
@@ -151,7 +149,7 @@ public class TableSnapshotScanner extends AbstractClientScanner {
           return null;
         }
 
-        HRegionInfo hri = regions.get(currentRegion);
+        RegionInfo hri = regions.get(currentRegion);
         currentRegionScanner = new ClientSideRegionScanner(conf, fs,
           restoreDir, htd, hri, scan, scanMetrics);
         if (this.scanMetrics != null) {

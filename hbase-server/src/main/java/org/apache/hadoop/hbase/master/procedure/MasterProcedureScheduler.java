@@ -18,8 +18,6 @@
 
 package org.apache.hadoop.hbase.master.procedure;
 
-import org.apache.hadoop.hbase.shaded.com.google.common.annotations.VisibleForTesting;
-
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -31,27 +29,29 @@ import java.util.Map.Entry;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.hbase.HRegionInfo;
-import org.apache.hadoop.hbase.ProcedureInfo;
 import org.apache.hadoop.hbase.ServerName;
 import org.apache.hadoop.hbase.TableExistsException;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.TableNotFoundException;
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
+import org.apache.hadoop.hbase.client.RegionInfo;
 import org.apache.hadoop.hbase.master.locking.LockProcedure;
 import org.apache.hadoop.hbase.master.procedure.TableProcedureInterface.TableOperationType;
 import org.apache.hadoop.hbase.procedure2.AbstractProcedureScheduler;
 import org.apache.hadoop.hbase.procedure2.LockAndQueue;
-import org.apache.hadoop.hbase.procedure2.LockInfo;
 import org.apache.hadoop.hbase.procedure2.LockStatus;
+import org.apache.hadoop.hbase.procedure2.LockType;
+import org.apache.hadoop.hbase.procedure2.LockedResource;
+import org.apache.hadoop.hbase.procedure2.LockedResourceType;
 import org.apache.hadoop.hbase.procedure2.Procedure;
 import org.apache.hadoop.hbase.procedure2.ProcedureDeque;
-import org.apache.hadoop.hbase.procedure2.ProcedureUtil;
 import org.apache.hadoop.hbase.util.AvlUtil.AvlIterableList;
 import org.apache.hadoop.hbase.util.AvlUtil.AvlKeyComparator;
 import org.apache.hadoop.hbase.util.AvlUtil.AvlLinkedNode;
 import org.apache.hadoop.hbase.util.AvlUtil.AvlTree;
 import org.apache.hadoop.hbase.util.AvlUtil.AvlTreeIterator;
+import org.apache.yetus.audience.InterfaceAudience;
+
+import org.apache.hadoop.hbase.shaded.com.google.common.annotations.VisibleForTesting;
 
 /**
  * ProcedureScheduler for the Master Procedures.
@@ -238,57 +238,42 @@ public class MasterProcedureScheduler extends AbstractProcedureScheduler {
     return pollResult;
   }
 
-  private LockInfo createLockInfo(LockInfo.ResourceType resourceType,
+  private LockedResource createLockedResource(LockedResourceType resourceType,
       String resourceName, LockAndQueue queue) {
-    LockInfo info = new LockInfo();
-
-    info.setResourceType(resourceType);
-    info.setResourceName(resourceName);
+    LockType lockType;
+    Procedure<?> exclusiveLockOwnerProcedure;
+    int sharedLockCount;
 
     if (queue.hasExclusiveLock()) {
-      info.setLockType(LockInfo.LockType.EXCLUSIVE);
-
-      Procedure<?> exclusiveLockOwnerProcedure = queue.getExclusiveLockOwnerProcedure();
-      ProcedureInfo exclusiveLockOwnerProcedureInfo =
-          ProcedureUtil.convertToProcedureInfo(exclusiveLockOwnerProcedure);
-      info.setExclusiveLockOwnerProcedure(exclusiveLockOwnerProcedureInfo);
-    } else if (queue.getSharedLockCount() > 0) {
-      info.setLockType(LockInfo.LockType.SHARED);
-      info.setSharedLockCount(queue.getSharedLockCount());
+      lockType = LockType.EXCLUSIVE;
+      exclusiveLockOwnerProcedure = queue.getExclusiveLockOwnerProcedure();
+      sharedLockCount = 0;
+    } else {
+      lockType = LockType.SHARED;
+      exclusiveLockOwnerProcedure = null;
+      sharedLockCount = queue.getSharedLockCount();
     }
+
+    List<Procedure<?>> waitingProcedures = new ArrayList<>();
 
     for (Procedure<?> procedure : queue) {
       if (!(procedure instanceof LockProcedure)) {
         continue;
       }
 
-      LockProcedure lockProcedure = (LockProcedure)procedure;
-      LockInfo.WaitingProcedure waitingProcedure = new LockInfo.WaitingProcedure();
-
-      switch (lockProcedure.getType()) {
-      case EXCLUSIVE:
-        waitingProcedure.setLockType(LockInfo.LockType.EXCLUSIVE);
-        break;
-      case SHARED:
-        waitingProcedure.setLockType(LockInfo.LockType.SHARED);
-        break;
-      }
-
-      ProcedureInfo procedureInfo = ProcedureUtil.convertToProcedureInfo(lockProcedure);
-      waitingProcedure.setProcedure(procedureInfo);
-
-      info.addWaitingProcedure(waitingProcedure);
+      waitingProcedures.add(procedure);
     }
 
-    return info;
+    return new LockedResource(resourceType, resourceName, lockType,
+        exclusiveLockOwnerProcedure, sharedLockCount, waitingProcedures);
   }
 
   @Override
-  public List<LockInfo> listLocks() {
+  public List<LockedResource> getLocks() {
     schedLock();
 
     try {
-      List<LockInfo> lockInfos = new ArrayList<>();
+      List<LockedResource> lockedResources = new ArrayList<>();
 
       for (Entry<ServerName, LockAndQueue> entry : locking.serverLocks
           .entrySet()) {
@@ -296,9 +281,9 @@ public class MasterProcedureScheduler extends AbstractProcedureScheduler {
         LockAndQueue queue = entry.getValue();
 
         if (queue.isLocked()) {
-          LockInfo lockInfo = createLockInfo(LockInfo.ResourceType.SERVER,
-              serverName, queue);
-          lockInfos.add(lockInfo);
+          LockedResource lockedResource =
+            createLockedResource(LockedResourceType.SERVER, serverName, queue);
+          lockedResources.add(lockedResource);
         }
       }
 
@@ -308,9 +293,9 @@ public class MasterProcedureScheduler extends AbstractProcedureScheduler {
         LockAndQueue queue = entry.getValue();
 
         if (queue.isLocked()) {
-          LockInfo lockInfo = createLockInfo(LockInfo.ResourceType.NAMESPACE,
-              namespaceName, queue);
-          lockInfos.add(lockInfo);
+          LockedResource lockedResource =
+            createLockedResource(LockedResourceType.NAMESPACE, namespaceName, queue);
+          lockedResources.add(lockedResource);
         }
       }
 
@@ -320,9 +305,9 @@ public class MasterProcedureScheduler extends AbstractProcedureScheduler {
         LockAndQueue queue = entry.getValue();
 
         if (queue.isLocked()) {
-          LockInfo lockInfo = createLockInfo(LockInfo.ResourceType.TABLE,
-              tableName, queue);
-          lockInfos.add(lockInfo);
+          LockedResource lockedResource =
+            createLockedResource(LockedResourceType.TABLE, tableName, queue);
+          lockedResources.add(lockedResource);
         }
       }
 
@@ -331,20 +316,21 @@ public class MasterProcedureScheduler extends AbstractProcedureScheduler {
         LockAndQueue queue = entry.getValue();
 
         if (queue.isLocked()) {
-          LockInfo lockInfo = createLockInfo(LockInfo.ResourceType.REGION,
-              regionName, queue);
-          lockInfos.add(lockInfo);
+          LockedResource lockedResource =
+            createLockedResource(LockedResourceType.REGION, regionName, queue);
+          lockedResources.add(lockedResource);
         }
       }
 
-      return lockInfos;
+      return lockedResources;
     } finally {
       schedUnlock();
     }
   }
 
   @Override
-  public LockInfo getLockInfoForResource(LockInfo.ResourceType resourceType, String resourceName) {
+  public LockedResource getLockResource(LockedResourceType resourceType,
+      String resourceName) {
     LockAndQueue queue = null;
     schedLock();
     try {
@@ -363,7 +349,7 @@ public class MasterProcedureScheduler extends AbstractProcedureScheduler {
           break;
       }
 
-      return queue != null ? createLockInfo(resourceType, resourceName, queue) : null;
+      return queue != null ? createLockedResource(resourceType, resourceName, queue) : null;
     } finally {
       schedUnlock();
     }
@@ -624,17 +610,17 @@ public class MasterProcedureScheduler extends AbstractProcedureScheduler {
   /**
    * Get lock info for a resource of specified type and name and log details
    */
-  protected void logLockInfoForResource(LockInfo.ResourceType resourceType, String resourceName) {
+  protected void logLockedResource(LockedResourceType resourceType, String resourceName) {
     if (!LOG.isDebugEnabled()) {
       return;
     }
 
-    LockInfo lockInfo = getLockInfoForResource(resourceType, resourceName);
-    if (lockInfo != null) {
+    LockedResource lockedResource = getLockResource(resourceType, resourceName);
+    if (lockedResource != null) {
       String msg = resourceType.toString() + " '" + resourceName + "', shared lock count=" +
-          lockInfo.getSharedLockCount();
+          lockedResource.getSharedLockCount();
 
-      ProcedureInfo proc = lockInfo.getExclusiveLockOwnerProcedure();
+      Procedure<?> proc = lockedResource.getExclusiveLockOwnerProcedure();
       if (proc != null) {
         msg += ", exclusively locked by procId=" + proc.getProcId();
       }
@@ -657,13 +643,13 @@ public class MasterProcedureScheduler extends AbstractProcedureScheduler {
       final LockAndQueue tableLock = locking.getTableLock(table);
       if (!namespaceLock.trySharedLock()) {
         waitProcedure(namespaceLock, procedure);
-        logLockInfoForResource(LockInfo.ResourceType.NAMESPACE, namespace);
+        logLockedResource(LockedResourceType.NAMESPACE, namespace);
         return true;
       }
       if (!tableLock.tryExclusiveLock(procedure)) {
         namespaceLock.releaseSharedLock();
         waitProcedure(tableLock, procedure);
-        logLockInfoForResource(LockInfo.ResourceType.TABLE, table.getNameAsString());
+        logLockedResource(LockedResourceType.TABLE, table.getNameAsString());
         return true;
       }
       removeFromRunQueue(tableRunQueue, getTableQueue(table));
@@ -798,7 +784,7 @@ public class MasterProcedureScheduler extends AbstractProcedureScheduler {
    * @param regionInfo the region we are trying to lock
    * @return true if the procedure has to wait for the regions to be available
    */
-  public boolean waitRegion(final Procedure procedure, final HRegionInfo regionInfo) {
+  public boolean waitRegion(final Procedure procedure, final RegionInfo regionInfo) {
     return waitRegions(procedure, regionInfo.getTable(), regionInfo);
   }
 
@@ -810,8 +796,8 @@ public class MasterProcedureScheduler extends AbstractProcedureScheduler {
    * @return true if the procedure has to wait for the regions to be available
    */
   public boolean waitRegions(final Procedure procedure, final TableName table,
-      final HRegionInfo... regionInfo) {
-    Arrays.sort(regionInfo);
+      final RegionInfo... regionInfo) {
+    Arrays.sort(regionInfo, RegionInfo.COMPARATOR);
     schedLock();
     try {
       // If there is parent procedure, it would have already taken xlock, so no need to take
@@ -857,7 +843,7 @@ public class MasterProcedureScheduler extends AbstractProcedureScheduler {
    * @param procedure the procedure that was holding the region
    * @param regionInfo the region the procedure was holding
    */
-  public void wakeRegion(final Procedure procedure, final HRegionInfo regionInfo) {
+  public void wakeRegion(final Procedure procedure, final RegionInfo regionInfo) {
     wakeRegions(procedure, regionInfo.getTable(), regionInfo);
   }
 
@@ -867,8 +853,8 @@ public class MasterProcedureScheduler extends AbstractProcedureScheduler {
    * @param regionInfo the list of regions the procedure was holding
    */
   public void wakeRegions(final Procedure procedure,final TableName table,
-      final HRegionInfo... regionInfo) {
-    Arrays.sort(regionInfo);
+      final RegionInfo... regionInfo) {
+    Arrays.sort(regionInfo, RegionInfo.COMPARATOR);
     schedLock();
     try {
       int numProcs = 0;
@@ -920,7 +906,7 @@ public class MasterProcedureScheduler extends AbstractProcedureScheduler {
           locking.getTableLock(TableName.NAMESPACE_TABLE_NAME);
       if (!systemNamespaceTableLock.trySharedLock()) {
         waitProcedure(systemNamespaceTableLock, procedure);
-        logLockInfoForResource(LockInfo.ResourceType.TABLE,
+        logLockedResource(LockedResourceType.TABLE,
             TableName.NAMESPACE_TABLE_NAME.getNameAsString());
         return true;
       }
@@ -929,7 +915,7 @@ public class MasterProcedureScheduler extends AbstractProcedureScheduler {
       if (!namespaceLock.tryExclusiveLock(procedure)) {
         systemNamespaceTableLock.releaseSharedLock();
         waitProcedure(namespaceLock, procedure);
-        logLockInfoForResource(LockInfo.ResourceType.NAMESPACE, namespace);
+        logLockedResource(LockedResourceType.NAMESPACE, namespace);
         return true;
       }
       return false;
@@ -982,7 +968,7 @@ public class MasterProcedureScheduler extends AbstractProcedureScheduler {
         return false;
       }
       waitProcedure(lock, procedure);
-      logLockInfoForResource(LockInfo.ResourceType.SERVER, serverName.getServerName());
+      logLockedResource(LockedResourceType.SERVER, serverName.getServerName());
       return true;
     } finally {
       schedUnlock();

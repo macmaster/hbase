@@ -21,7 +21,7 @@ import static org.apache.hadoop.hbase.client.ConnectionUtils.retries2Attempts;
 
 import java.util.concurrent.TimeUnit;
 
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceAudience;
 
 /**
  * For creating {@link AsyncTable} or {@link RawAsyncTable}.
@@ -29,6 +29,7 @@ import org.apache.hadoop.hbase.classification.InterfaceAudience;
  * The implementation should have default configurations set before returning the builder to user.
  * So users are free to only set the configs they care about to create a new
  * AsyncTable/RawAsyncTable instance.
+ * @since 2.0.0
  */
 @InterfaceAudience.Public
 public interface AsyncTableBuilder<T extends AsyncTableBase> {

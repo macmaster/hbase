@@ -23,6 +23,8 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -37,21 +39,23 @@ import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.coprocessor.CoprocessorHost;
 import org.apache.hadoop.hbase.coprocessor.MultiRowMutationEndpoint;
 import org.apache.hadoop.hbase.coprocessor.ObserverContext;
+import org.apache.hadoop.hbase.coprocessor.RegionCoprocessor;
 import org.apache.hadoop.hbase.coprocessor.RegionCoprocessorEnvironment;
 import org.apache.hadoop.hbase.coprocessor.RegionObserver;
 import org.apache.hadoop.hbase.io.hfile.BlockCache;
 import org.apache.hadoop.hbase.io.hfile.BlockCacheKey;
 import org.apache.hadoop.hbase.io.hfile.CacheConfig;
 import org.apache.hadoop.hbase.io.hfile.CachedBlock;
+import org.apache.hadoop.hbase.regionserver.HRegion;
+import org.apache.hadoop.hbase.regionserver.HStore;
 import org.apache.hadoop.hbase.regionserver.InternalScanner;
 import org.apache.hadoop.hbase.regionserver.KeyValueScanner;
-import org.apache.hadoop.hbase.regionserver.Region;
 import org.apache.hadoop.hbase.regionserver.ScanInfo;
 import org.apache.hadoop.hbase.regionserver.ScanType;
 import org.apache.hadoop.hbase.regionserver.ScannerContext;
 import org.apache.hadoop.hbase.regionserver.Store;
 import org.apache.hadoop.hbase.regionserver.StoreScanner;
-import org.apache.hadoop.hbase.regionserver.compactions.CompactionRequest;
+import org.apache.hadoop.hbase.regionserver.compactions.CompactionLifeCycleTracker;
 import org.apache.hadoop.hbase.testclassification.ClientTests;
 import org.apache.hadoop.hbase.testclassification.LargeTests;
 import org.apache.hadoop.hbase.util.Bytes;
@@ -130,9 +134,9 @@ public class TestAvoidCellReferencesIntoShippedBlocks {
       // get the block cache and region
       RegionLocator locator = TEST_UTIL.getConnection().getRegionLocator(tableName);
       String regionName = locator.getAllRegionLocations().get(0).getRegionInfo().getEncodedName();
-      Region region =
-          TEST_UTIL.getRSForFirstRegionInTable(tableName).getFromOnlineRegions(regionName);
-      Store store = region.getStores().iterator().next();
+      HRegion region =
+          (HRegion) TEST_UTIL.getRSForFirstRegionInTable(tableName).getRegion(regionName);
+      HStore store = region.getStores().iterator().next();
       CacheConfig cacheConf = store.getCacheConfig();
       cacheConf.setCacheDataOnWrite(true);
       cacheConf.setEvictOnClose(true);
@@ -251,37 +255,35 @@ public class TestAvoidCellReferencesIntoShippedBlocks {
     }
   }
 
-  public static class CompactorRegionObserver implements RegionObserver {
+  public static class CompactorRegionObserver implements RegionCoprocessor, RegionObserver {
+
     @Override
-    public InternalScanner preCompactScannerOpen(ObserverContext<RegionCoprocessorEnvironment> c,
-        Store store, List<? extends KeyValueScanner> scanners, ScanType scanType,
-        long earliestPutTs, InternalScanner s) throws IOException {
-      return createCompactorScanner(store, scanners, scanType, earliestPutTs);
+    public Optional<RegionObserver> getRegionObserver() {
+      return Optional.of(this);
     }
 
     @Override
     public InternalScanner preCompactScannerOpen(ObserverContext<RegionCoprocessorEnvironment> c,
         Store store, List<? extends KeyValueScanner> scanners, ScanType scanType,
-        long earliestPutTs, InternalScanner s, CompactionRequest request) throws IOException {
-      return createCompactorScanner(store, scanners, scanType, earliestPutTs);
+        long earliestPutTs, InternalScanner s, CompactionLifeCycleTracker request, long readPoint)
+        throws IOException {
+      return createCompactorScanner((HStore) store, scanners, scanType, earliestPutTs);
     }
 
-    private InternalScanner createCompactorScanner(Store store,
+    private InternalScanner createCompactorScanner(HStore store,
         List<? extends KeyValueScanner> scanners, ScanType scanType, long earliestPutTs)
         throws IOException {
-      Scan scan = new Scan();
-      scan.setMaxVersions(store.getColumnFamilyDescriptor().getMaxVersions());
-      return new CompactorStoreScanner(store, store.getScanInfo(), scan, scanners, scanType,
-          store.getSmallestReadPoint(), earliestPutTs);
+      return new CompactorStoreScanner(store, store.getScanInfo(), OptionalInt.empty(), scanners,
+          scanType, store.getSmallestReadPoint(), earliestPutTs);
     }
   }
 
   private static class CompactorStoreScanner extends StoreScanner {
 
-    public CompactorStoreScanner(Store store, ScanInfo scanInfo, Scan scan,
+    public CompactorStoreScanner(HStore store, ScanInfo scanInfo, OptionalInt maxVersions,
         List<? extends KeyValueScanner> scanners, ScanType scanType, long smallestReadPoint,
         long earliestPutTs) throws IOException {
-      super(store, scanInfo, scan, scanners, scanType, smallestReadPoint, earliestPutTs);
+      super(store, scanInfo, maxVersions, scanners, scanType, smallestReadPoint, earliestPutTs);
     }
 
     @Override
@@ -311,9 +313,9 @@ public class TestAvoidCellReferencesIntoShippedBlocks {
       // get the block cache and region
       RegionLocator locator = TEST_UTIL.getConnection().getRegionLocator(tableName);
       String regionName = locator.getAllRegionLocations().get(0).getRegionInfo().getEncodedName();
-      Region region =
-          TEST_UTIL.getRSForFirstRegionInTable(tableName).getFromOnlineRegions(regionName);
-      Store store = region.getStores().iterator().next();
+      HRegion region = (HRegion) TEST_UTIL.getRSForFirstRegionInTable(tableName)
+          .getRegion(regionName);
+      HStore store = region.getStores().iterator().next();
       CacheConfig cacheConf = store.getCacheConfig();
       cacheConf.setCacheDataOnWrite(true);
       cacheConf.setEvictOnClose(true);

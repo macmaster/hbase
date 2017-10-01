@@ -173,7 +173,7 @@ This abstraction lays the groundwork for upcoming multi-tenancy related features
 
 * Quota Management (link:https://issues.apache.org/jira/browse/HBASE-8410[HBASE-8410]) - Restrict the amount of resources (i.e. regions, tables) a namespace can consume.
 * Namespace Security Administration (link:https://issues.apache.org/jira/browse/HBASE-9206[HBASE-9206]) - Provide another level of security administration for tenants.
-* Region server groups (link:https://issues.apache.org/jira/browse/HBASE-6721[HBASE-6721]) - A namespace/table can be pinned onto a subset of RegionServers thus guaranteeing a course level of isolation.
+* Region server groups (link:https://issues.apache.org/jira/browse/HBASE-6721[HBASE-6721]) - A namespace/table can be pinned onto a subset of RegionServers thus guaranteeing a coarse level of isolation.
 
 [[namespace_creation]]
 === Namespace management
@@ -279,7 +279,7 @@ Gets are executed via link:http://hbase.apache.org/apidocs/org/apache/hadoop/hba
 
 === Put
 
-link:http://hbase.apache.org/apidocs/org/apache/hadoop/hbase/client/Put.html[Put] either adds new rows to a table (if the key is new) or can update existing rows (if the key already exists). Puts are executed via link:http://hbase.apache.org/apidocs/org/apache/hadoop/hbase/client/Table.html#put(org.apache.hadoop.hbase.client.Put)[Table.put] (writeBuffer) or link:http://hbase.apache.org/apidocs/org/apache/hadoop/hbase/client/Table.html#batch(java.util.List,%20java.lang.Object%5B%5D)[Table.batch] (non-writeBuffer).
+link:http://hbase.apache.org/apidocs/org/apache/hadoop/hbase/client/Put.html[Put] either adds new rows to a table (if the key is new) or can update existing rows (if the key already exists). Puts are executed via link:http://hbase.apache.org/apidocs/org/apache/hadoop/hbase/client/Table.html#put(org.apache.hadoop.hbase.client.Put)[Table.put] (non-writeBuffer) or link:http://hbase.apache.org/apidocs/org/apache/hadoop/hbase/client/Table.html#batch(java.util.List,%20java.lang.Object%5B%5D)[Table.batch] (non-writeBuffer).
 
 [[scan]]
 === Scans

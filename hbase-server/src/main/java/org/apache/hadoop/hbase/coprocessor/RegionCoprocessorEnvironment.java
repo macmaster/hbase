@@ -23,24 +23,24 @@ import java.util.concurrent.ConcurrentMap;
 
 import org.apache.hadoop.hbase.CoprocessorEnvironment;
 import org.apache.hadoop.hbase.HBaseInterfaceAudience;
-import org.apache.hadoop.hbase.HRegionInfo;
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
-import org.apache.hadoop.hbase.classification.InterfaceStability;
+import org.apache.hadoop.hbase.client.RegionInfo;
 import org.apache.hadoop.hbase.metrics.MetricRegistry;
+import org.apache.hadoop.hbase.regionserver.CoprocessorRegionServerServices;
 import org.apache.hadoop.hbase.regionserver.Region;
-import org.apache.hadoop.hbase.regionserver.RegionServerServices;
+import org.apache.yetus.audience.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceStability;
 
 @InterfaceAudience.LimitedPrivate(HBaseInterfaceAudience.COPROC)
 @InterfaceStability.Evolving
-public interface RegionCoprocessorEnvironment extends CoprocessorEnvironment {
+public interface RegionCoprocessorEnvironment extends CoprocessorEnvironment<RegionCoprocessor> {
   /** @return the region associated with this coprocessor */
   Region getRegion();
 
   /** @return region information for the region this coprocessor is running on */
-  HRegionInfo getRegionInfo();
+  RegionInfo getRegionInfo();
 
   /** @return reference to the region server services */
-  RegionServerServices getRegionServerServices();
+  CoprocessorRegionServerServices getCoprocessorRegionServerServices();
 
   /** @return shared data between all instances of this coprocessor */
   ConcurrentMap<String, Object> getSharedData();
@@ -61,6 +61,4 @@ public interface RegionCoprocessorEnvironment extends CoprocessorEnvironment {
   // so we do not want to allow coprocessors to export metrics at the region level. We can allow
   // getMetricRegistryForTable() to allow coprocessors to track metrics per-table, per-regionserver.
   MetricRegistry getMetricRegistryForRegionServer();
-
-
 }

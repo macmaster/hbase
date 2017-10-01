@@ -26,7 +26,7 @@ import java.util.TreeSet;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.ClusterManager.ServiceType;
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceAudience;
 import org.apache.hadoop.hbase.client.Admin;
 import org.apache.hadoop.hbase.client.ClusterConnection;
 import org.apache.hadoop.hbase.client.Connection;
@@ -286,13 +286,13 @@ public class DistributedHBaseCluster extends HBaseCluster {
   @Override
   public void waitUntilShutDown() {
     // Simply wait for a few seconds for now (after issuing serverManager.kill
-    throw new RuntimeException("Not implemented yet");
+    throw new RuntimeException(HConstants.NOT_IMPLEMENTED);
   }
 
   @Override
   public void shutdown() throws IOException {
     // not sure we want this
-    throw new RuntimeException("Not implemented yet");
+    throw new RuntimeException(HConstants.NOT_IMPLEMENTED);
   }
 
   @Override
@@ -320,7 +320,7 @@ public class DistributedHBaseCluster extends HBaseCluster {
     List<IOException> deferred = new ArrayList<>();
     //check whether current master has changed
     final ServerName initMaster = initial.getMaster();
-    if (!ServerName.isSameHostnameAndPort(initMaster, current.getMaster())) {
+    if (!ServerName.isSameAddress(initMaster, current.getMaster())) {
       LOG.info("Restoring cluster - Initial active master : "
               + initMaster.getHostAndPort()
               + " has changed to : "
@@ -340,7 +340,7 @@ public class DistributedHBaseCluster extends HBaseCluster {
         // 2. Stop current master
         // 3. Start backup masters
         for (ServerName currentBackup : current.getBackupMasters()) {
-          if (!ServerName.isSameHostnameAndPort(currentBackup, initMaster)) {
+          if (!ServerName.isSameAddress(currentBackup, initMaster)) {
             LOG.info("Restoring cluster - stopping backup master: " + currentBackup);
             stopMaster(currentBackup);
           }

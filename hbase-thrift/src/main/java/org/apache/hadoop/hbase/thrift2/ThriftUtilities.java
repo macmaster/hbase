@@ -26,11 +26,12 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-import org.apache.commons.collections.MapUtils;
+import org.apache.commons.collections4.MapUtils;
+import org.apache.hadoop.hbase.CompareOperator;
 import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.HRegionLocation;
 import org.apache.hadoop.hbase.ServerName;
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceAudience;
 import org.apache.hadoop.hbase.Cell;
 import org.apache.hadoop.hbase.CellUtil;
 import org.apache.hadoop.hbase.HConstants;
@@ -55,7 +56,6 @@ import org.apache.hadoop.hbase.thrift2.generated.TColumnIncrement;
 import org.apache.hadoop.hbase.thrift2.generated.TColumnValue;
 import org.apache.hadoop.hbase.thrift2.generated.TCompareOp;
 import org.apache.hadoop.hbase.thrift2.generated.TDelete;
-import org.apache.hadoop.hbase.thrift2.generated.TDeleteType;
 import org.apache.hadoop.hbase.thrift2.generated.TDurability;
 import org.apache.hadoop.hbase.thrift2.generated.TGet;
 import org.apache.hadoop.hbase.thrift2.generated.THRegionInfo;
@@ -571,15 +571,15 @@ public class ThriftUtilities {
     }
   }
 
-  public static CompareOp compareOpFromThrift(TCompareOp tCompareOp) {
+  public static CompareOperator compareOpFromThrift(TCompareOp tCompareOp) {
     switch (tCompareOp.getValue()) {
-      case 0: return CompareOp.LESS;
-      case 1: return CompareOp.LESS_OR_EQUAL;
-      case 2: return CompareOp.EQUAL;
-      case 3: return CompareOp.NOT_EQUAL;
-      case 4: return CompareOp.GREATER_OR_EQUAL;
-      case 5: return CompareOp.GREATER;
-      case 6: return CompareOp.NO_OP;
+      case 0: return CompareOperator.LESS;
+      case 1: return CompareOperator.LESS_OR_EQUAL;
+      case 2: return CompareOperator.EQUAL;
+      case 3: return CompareOperator.NOT_EQUAL;
+      case 4: return CompareOperator.GREATER_OR_EQUAL;
+      case 5: return CompareOperator.GREATER;
+      case 6: return CompareOperator.NO_OP;
       default: return null;
     }
   }

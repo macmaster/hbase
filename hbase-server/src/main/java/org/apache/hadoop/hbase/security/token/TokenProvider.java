@@ -19,18 +19,18 @@
 package org.apache.hadoop.hbase.security.token;
 
 import java.io.IOException;
+import java.util.Collections;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.apache.hadoop.hbase.Coprocessor;
 import org.apache.hadoop.hbase.CoprocessorEnvironment;
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
-import org.apache.hadoop.hbase.coprocessor.CoprocessorService;
+import org.apache.hadoop.hbase.coprocessor.RegionCoprocessor;
 import org.apache.hadoop.hbase.coprocessor.RegionCoprocessorEnvironment;
 import org.apache.hadoop.hbase.ipc.CoprocessorRpcUtils;
 import org.apache.hadoop.hbase.ipc.RpcServer;
 import org.apache.hadoop.hbase.ipc.RpcServerInterface;
 import org.apache.hadoop.hbase.protobuf.generated.AuthenticationProtos;
+import org.apache.hadoop.hbase.regionserver.RegionServerServices;
 import org.apache.hadoop.hbase.security.AccessDeniedException;
 import org.apache.hadoop.hbase.security.User;
 import org.apache.hadoop.security.UserGroupInformation;
@@ -41,6 +41,7 @@ import org.apache.hadoop.security.token.Token;
 import com.google.protobuf.RpcCallback;
 import com.google.protobuf.RpcController;
 import com.google.protobuf.Service;
+import org.apache.yetus.audience.InterfaceAudience;
 
 /**
  * Provides a service for obtaining authentication tokens via the
@@ -48,7 +49,7 @@ import com.google.protobuf.Service;
  */
 @InterfaceAudience.Private
 public class TokenProvider implements AuthenticationProtos.AuthenticationService.Interface,
-    Coprocessor, CoprocessorService {
+    RegionCoprocessor {
 
   private static final Log LOG = LogFactory.getLog(TokenProvider.class);
 
@@ -61,7 +62,9 @@ public class TokenProvider implements AuthenticationProtos.AuthenticationService
     if (env instanceof RegionCoprocessorEnvironment) {
       RegionCoprocessorEnvironment regionEnv =
           (RegionCoprocessorEnvironment)env;
-      RpcServerInterface server = regionEnv.getRegionServerServices().getRpcServer();
+      assert regionEnv.getCoprocessorRegionServerServices() instanceof RegionServerServices;
+      RpcServerInterface server = ((RegionServerServices) regionEnv
+          .getCoprocessorRegionServerServices()).getRpcServer();
       SecretManager<?> mgr = ((RpcServer)server).getSecretManager();
       if (mgr instanceof AuthenticationTokenSecretManager) {
         secretManager = (AuthenticationTokenSecretManager)mgr;
@@ -93,8 +96,9 @@ public class TokenProvider implements AuthenticationProtos.AuthenticationService
   // AuthenticationService implementation
 
   @Override
-  public Service getService() {
-    return AuthenticationProtos.AuthenticationService.newReflectiveService(this);
+  public Iterable<Service> getServices() {
+    return Collections.singleton(
+        AuthenticationProtos.AuthenticationService.newReflectiveService(this));
   }
 
   @Override

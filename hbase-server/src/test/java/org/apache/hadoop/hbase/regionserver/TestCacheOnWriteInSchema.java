@@ -208,7 +208,7 @@ public class TestCacheOnWriteInSchema {
   public void testCacheOnWriteInSchema() throws IOException {
     // Write some random data into the store
     StoreFileWriter writer = store.createWriterInTmp(Integer.MAX_VALUE,
-        HFile.DEFAULT_COMPRESSION_ALGORITHM, false, true, false);
+        HFile.DEFAULT_COMPRESSION_ALGORITHM, false, true, false, false);
     writeStoreFile(writer);
     writer.close();
     // Verify the block types of interest were cached on write
@@ -218,7 +218,7 @@ public class TestCacheOnWriteInSchema {
   private void readStoreFile(Path path) throws IOException {
     CacheConfig cacheConf = store.getCacheConfig();
     BlockCache cache = cacheConf.getBlockCache();
-    StoreFile sf = new HStoreFile(fs, path, conf, cacheConf, BloomType.ROWCOL, true);
+    HStoreFile sf = new HStoreFile(fs, path, conf, cacheConf, BloomType.ROWCOL, true);
     sf.initReader();
     HFile.Reader reader = sf.getReader().getHFileReader();
     try {

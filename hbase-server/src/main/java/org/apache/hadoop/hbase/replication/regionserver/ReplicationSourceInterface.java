@@ -22,7 +22,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.UUID;
 
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceAudience;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
@@ -53,11 +53,10 @@ public interface ReplicationSourceInterface {
    * @param clusterId
    * @throws IOException
    */
-  public void init(final Configuration conf, final FileSystem fs,
-      final ReplicationSourceManager manager, final ReplicationQueues replicationQueues,
-      final ReplicationPeers replicationPeers, final Stoppable stopper,
-      final String peerClusterZnode, final UUID clusterId, ReplicationEndpoint replicationEndpoint,
-      final MetricsSource metrics) throws IOException;
+  void init(Configuration conf, FileSystem fs, ReplicationSourceManager manager,
+      ReplicationQueues replicationQueues, ReplicationPeers replicationPeers, Stoppable stopper,
+      String peerClusterZnode, UUID clusterId, ReplicationEndpoint replicationEndpoint,
+      WALFileLengthProvider walFileLengthProvider, MetricsSource metrics) throws IOException;
 
   /**
    * Add a log to the list of logs to replicate
@@ -145,6 +144,11 @@ public interface ReplicationSourceInterface {
    * @return the replication source manager
    */
   ReplicationSourceManager getSourceManager();
+
+  /**
+   * @return the wal file length provider
+   */
+  WALFileLengthProvider getWALFileLengthProvider();
 
   /**
    * Try to throttle when the peer config with a bandwidth

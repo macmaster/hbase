@@ -38,8 +38,8 @@ import org.apache.hadoop.hbase.DaemonThreadFactory;
 import org.apache.hadoop.hbase.DroppedSnapshotException;
 import org.apache.hadoop.hbase.HBaseInterfaceAudience;
 import org.apache.hadoop.hbase.TableName;
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
-import org.apache.hadoop.hbase.classification.InterfaceStability;
+import org.apache.yetus.audience.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceStability;
 import org.apache.hadoop.hbase.client.RegionReplicaUtil;
 import org.apache.hadoop.hbase.errorhandling.ForeignException;
 import org.apache.hadoop.hbase.errorhandling.ForeignExceptionDispatcher;
@@ -223,7 +223,7 @@ public class RegionServerSnapshotManager extends RegionServerProcedureManager {
    * @throws IOException
    */
   private List<Region> getRegionsToSnapshot(SnapshotDescription snapshot) throws IOException {
-    List<Region> onlineRegions = rss.getOnlineRegions(TableName.valueOf(snapshot.getTable()));
+    List<Region> onlineRegions = rss.getRegions(TableName.valueOf(snapshot.getTable()));
     Iterator<Region> iterator = onlineRegions.iterator();
     // remove the non-default regions
     while (iterator.hasNext()) {

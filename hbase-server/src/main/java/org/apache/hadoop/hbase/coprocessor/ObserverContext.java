@@ -20,8 +20,8 @@
 package org.apache.hadoop.hbase.coprocessor;
 
 import edu.umd.cs.findbugs.annotations.Nullable;
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
-import org.apache.hadoop.hbase.classification.InterfaceStability;
+import org.apache.yetus.audience.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceStability;
 import org.apache.hadoop.hbase.CoprocessorEnvironment;
 import org.apache.hadoop.hbase.HBaseInterfaceAudience;
 import org.apache.hadoop.hbase.ipc.RpcServer;
@@ -116,13 +116,13 @@ public class ObserverContext<E extends CoprocessorEnvironment> {
    * @param env The coprocessor environment to set
    * @param context An existing ObserverContext instance to use, or <code>null</code>
    *     to create a new instance
-   * @param <T> The environment type for the context
+   * @param <E> The environment type for the context
    * @return An instance of <code>ObserverContext</code> with the environment set
    */
   @Deprecated
   // TODO: Remove this method, ObserverContext should not depend on RpcServer
-  public static <T extends CoprocessorEnvironment> ObserverContext<T> createAndPrepare(
-      T env, ObserverContext<T> context) {
+  public static <E extends CoprocessorEnvironment> ObserverContext<E> createAndPrepare(
+      E env, ObserverContext< E> context) {
     if (context == null) {
       context = new ObserverContext<>(RpcServer.getRequestUser());
     }
@@ -140,11 +140,11 @@ public class ObserverContext<E extends CoprocessorEnvironment> {
    * @param context An existing ObserverContext instance to use, or <code>null</code>
    *     to create a new instance
    * @param user The requesting caller for the execution context
-   * @param <T> The environment type for the context
+   * @param <E> The environment type for the context
    * @return An instance of <code>ObserverContext</code> with the environment set
    */
-  public static <T extends CoprocessorEnvironment> ObserverContext<T> createAndPrepare(
-      T env, ObserverContext<T> context, User user) {
+  public static <E extends CoprocessorEnvironment> ObserverContext<E> createAndPrepare(
+      E env, ObserverContext<E> context, User user) {
     if (context == null) {
       context = new ObserverContext<>(user);
     }

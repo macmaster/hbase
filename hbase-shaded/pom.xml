@@ -39,7 +39,8 @@
     </properties>
     <modules>
         <module>hbase-shaded-client</module>
-        <module>hbase-shaded-server</module>
+        <module>hbase-shaded-mapreduce</module>
+        <module>hbase-shaded-check-invariants</module>
     </modules>
     <dependencies>
       <dependency>
@@ -47,6 +48,18 @@
          <artifactId>hbase-resource-bundle</artifactId>
          <version>${project.version}</version>
          <optional>true</optional>
+      </dependency>
+      <!-- log4j has to be non-optional for Hadoop 2 atleast -->
+      <dependency>
+        <groupId>log4j</groupId>
+        <artifactId>log4j</artifactId>
+      </dependency>
+      <!-- put the log implementations to optional -->
+      <dependency>
+        <groupId>org.slf4j</groupId>
+        <artifactId>slf4j-log4j12</artifactId>
+        <version>${slf4j.version}</version>
+        <optional>true</optional>
       </dependency>
     </dependencies>
     <build>
@@ -120,7 +133,6 @@
                                 <createSourcesJar>false</createSourcesJar>
                                 <shadedArtifactAttached>false</shadedArtifactAttached>
                                 <promoteTransitiveDependencies>true</promoteTransitiveDependencies>
-                                <dependencyReducedPomLocation>${project.build.directory}/dependency-reduced-pom.xml</dependencyReducedPomLocation>
                                 <shadeTestJar>false</shadeTestJar>
                                 <artifactSet>
                                     <excludes>
@@ -129,12 +141,17 @@
                                         <exclude>com.google.code.findbugs:*</exclude>
                                         <exclude>com.github.stephenc.findbugs:*</exclude>
                                         <exclude>org.apache.htrace:*</exclude>
+                                        <exclude>org.apache.yetus:*</exclude>
                                         <exclude>log4j:*</exclude>
                                         <exclude>commons-logging:*</exclude>
                                     </excludes>
                                 </artifactSet>
                                 <relocations>
                                     <!-- top level com not including sun-->
+                                    <relocation>
+                                        <pattern>com.codahale</pattern>
+                                        <shadedPattern>org.apache.hadoop.hbase.shaded.com.codahale</shadedPattern>
+                                    </relocation>
                                     <relocation>
                                         <pattern>com.google</pattern>
                                         <shadedPattern>org.apache.hadoop.hbase.shaded.com.google</shadedPattern>
@@ -215,6 +232,11 @@
                                         <pattern>org.jets3t</pattern>
                                         <shadedPattern>org.apache.hadoop.hbase.shaded.org.jets3t</shadedPattern>
                                     </relocation>
+                                    <!-- poorly named add-on package from jets3t dependency. TODO can we just exclude these? -->
+                                    <relocation>
+                                        <pattern>contribs.mx</pattern>
+                                        <shadedPattern>org.apache.hadoop.hbase.shaded.contribs.mx</shadedPattern>
+                                    </relocation>
                                     <relocation>
                                         <pattern>org.objectweb</pattern>
                                         <shadedPattern>org.apache.hadoop.hbase.shaded.org.objectweb</shadedPattern>
@@ -225,6 +247,10 @@
                                     <relocation>
                                         <pattern>org.apache.avro</pattern>
                                         <shadedPattern>org.apache.hadoop.hbase.shaded.org.apache.avro</shadedPattern>
+                                    </relocation>
+                                    <relocation>
+                                        <pattern>org.apache.curator</pattern>
+                                        <shadedPattern>org.apache.hadoop.hbase.shaded.org.apache.curator</shadedPattern>
                                     </relocation>
                                     <relocation>
                                         <pattern>org.apache.directory</pattern>
@@ -269,6 +295,10 @@
                                         <shadedPattern>org.apache.hadoop.hbase.shaded.org.apache.commons.configuration</shadedPattern>
                                     </relocation>
                                     <relocation>
+                                        <pattern>org.apache.commons.crypto</pattern>
+                                        <shadedPattern>org.apache.hadoop.hbase.shaded.org.apache.commons.crypto</shadedPattern>
+                                    </relocation>
+                                    <relocation>
                                         <pattern>org.apache.commons.daemon</pattern>
                                         <shadedPattern>org.apache.hadoop.hbase.shaded.org.apache.commons.daemon</shadedPattern>
                                     </relocation>
@@ -291,6 +321,10 @@
                                     <relocation>
                                         <pattern>org.apache.commons.lang</pattern>
                                         <shadedPattern>org.apache.hadoop.hbase.shaded.org.apache.commons.lang</shadedPattern>
+                                    </relocation>
+                                    <relocation>
+                                        <pattern>org.apache.commons.lang3</pattern>
+                                        <shadedPattern>org.apache.hadoop.hbase.shaded.org.apache.commons.lang3</shadedPattern>
                                     </relocation>
                                     <relocation>
                                         <pattern>org.apache.commons.el</pattern>
@@ -339,6 +373,9 @@
                                     <resources>
                                       <resource>LICENSE.txt</resource>
                                       <resource>ASL2.0</resource>
+                                      <resource>LICENSE-junit.txt</resource>
+                                      <!-- also this unneeded doc -->
+                                      <resource>overview.html</resource>
                                     </resources>
                                   </transformer>
                                   <!-- Where notices exist, just concat them -->
@@ -354,6 +391,44 @@
                                     <excludes>
                                       <exclude>META-INF/ECLIPSEF.SF</exclude>
                                       <exclude>META-INF/ECLIPSEF.RSA</exclude>
+                                    </excludes>
+                                  </filter>
+                                  <filter>
+                                    <!-- server side webapps that we don't need -->
+                                    <artifact>org.apache.hbase:hbase-server</artifact>
+                                    <excludes>
+                                      <exclude>hbase-webapps/*</exclude>
+                                      <exclude>hbase-webapps/**/*</exclude>
+                                    </excludes>
+                                  </filter>
+                                  <filter>
+                                    <!-- server side webapps that we don't need -->
+                                    <artifact>org.apache.hadoop:hadoop-yarn-common</artifact>
+                                    <excludes>
+                                      <exclude>webapps/*</exclude>
+                                      <exclude>webapps/**/*</exclude>
+                                    </excludes>
+                                  </filter>
+                                  <filter>
+                                    <!-- proto source files aren't needed -->
+                                    <artifact>*:*</artifact>
+                                    <excludes>
+                                      <exclude>*.proto</exclude>
+                                      <exclude>**/*.proto</exclude>
+                                    </excludes>
+                                  </filter>
+                                  <filter>
+                                    <!-- skip french localization -->
+                                    <artifact>org.apache.commons:commons-math3</artifact>
+                                    <excludes>
+                                      <exclude>assets/org/apache/commons/math3/**/*</exclude>
+                                    </excludes>
+                                  </filter>
+                                  <filter>
+                                    <!-- appears to be the result of a conflict in hadoop artifacts -->
+                                    <artifact>org.apache.hadoop:*</artifact>
+                                    <excludes>
+                                      <exclude>mapred-default.xml.orig</exclude>
                                     </excludes>
                                   </filter>
                                 </filters>

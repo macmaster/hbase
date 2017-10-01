@@ -39,13 +39,16 @@ import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.Coprocessor;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.TableName;
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceAudience;
 import org.apache.hadoop.hbase.exceptions.DeserializationException;
 import org.apache.hadoop.hbase.security.User;
 import org.apache.hadoop.hbase.shaded.protobuf.ProtobufUtil;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.HBaseProtos;
 import org.apache.hadoop.hbase.util.Bytes;
 
+/**
+ * @since 2.0.0
+ */
 @InterfaceAudience.Public
 public class TableDescriptorBuilder {
   public static final Log LOG = LogFactory.getLog(TableDescriptorBuilder.class);
@@ -133,6 +136,8 @@ public class TableDescriptorBuilder {
   private static final Bytes REGION_MEMSTORE_REPLICATION_KEY
           = new Bytes(Bytes.toBytes(REGION_MEMSTORE_REPLICATION));
 
+  private static final Bytes REGION_REPLICA_WAIT_FOR_PRIMARY_FLUSH_CONF_KEY
+          = new Bytes(Bytes.toBytes(RegionReplicaUtil.REGION_REPLICA_WAIT_FOR_PRIMARY_FLUSH_CONF_KEY));
   /**
    * Used by shell/rest interface to access this metadata
    * attribute which denotes if the table should be treated by region
@@ -252,12 +257,16 @@ public class TableDescriptorBuilder {
     return new TableDescriptorBuilder(name);
   }
 
-  public static TableDescriptor copy(TableDescriptor desc) throws DeserializationException {
+  public static TableDescriptor copy(TableDescriptor desc) {
     return new ModifyableTableDescriptor(desc);
   }
 
+  public static TableDescriptor copy(TableName name, TableDescriptor desc) {
+    return new ModifyableTableDescriptor(name, desc);
+  }
+
   /**
-   * Copy all configuration, values, families, and name from the input.
+   * Copy all values, families, and name from the input.
    * @param desc The desciptor to copy
    * @return A clone of input
    */
@@ -308,11 +317,6 @@ public class TableDescriptorBuilder {
     return this;
   }
 
-  public TableDescriptorBuilder removeConfiguration(final String key) {
-    desc.removeConfiguration(key);
-    return this;
-  }
-
   public TableDescriptorBuilder removeColumnFamily(final byte[] name) {
     desc.removeColumnFamily(name);
     return this;
@@ -325,11 +329,6 @@ public class TableDescriptorBuilder {
 
   public TableDescriptorBuilder setCompactionEnabled(final boolean isEnable) {
     desc.setCompactionEnabled(isEnable);
-    return this;
-  }
-
-  public TableDescriptorBuilder setConfiguration(String key, String value) {
-    desc.setConfiguration(key, value);
     return this;
   }
 
@@ -395,6 +394,11 @@ public class TableDescriptorBuilder {
     return this;
   }
 
+  public TableDescriptorBuilder setValue(final String key, final String value) {
+    desc.setValue(key, value);
+    return this;
+  }
+
   public TableDescriptorBuilder setValue(final Bytes key, final Bytes value) {
     desc.setValue(key, value);
     return this;
@@ -426,13 +430,6 @@ public class TableDescriptorBuilder {
     private final Map<Bytes, Bytes> values = new HashMap<>();
 
     /**
-     * A map which holds the configuration specific to the table. The keys of
-     * the map have the same names as config keys and override the defaults with
-     * table-specific settings. Example usage may be for compactions, etc.
-     */
-    private final Map<String, String> configuration = new HashMap<>();
-
-    /**
      * Maps column family name to the respective FamilyDescriptors
      */
     private final Map<byte[], ColumnFamilyDescriptor> families
@@ -446,11 +443,11 @@ public class TableDescriptorBuilder {
      */
     @InterfaceAudience.Private
     public ModifyableTableDescriptor(final TableName name) {
-      this(name, Collections.EMPTY_LIST, Collections.EMPTY_MAP, Collections.EMPTY_MAP);
+      this(name, Collections.EMPTY_LIST, Collections.EMPTY_MAP);
     }
 
     private ModifyableTableDescriptor(final TableDescriptor desc) {
-      this(desc.getTableName(), Arrays.asList(desc.getColumnFamilies()), desc.getValues(), desc.getConfiguration());
+      this(desc.getTableName(), Arrays.asList(desc.getColumnFamilies()), desc.getValues());
     }
 
     /**
@@ -465,15 +462,14 @@ public class TableDescriptorBuilder {
     @InterfaceAudience.Private
     @Deprecated // only used by HTableDescriptor. remove this method if HTD is removed
     public ModifyableTableDescriptor(final TableName name, final TableDescriptor desc) {
-      this(name, Arrays.asList(desc.getColumnFamilies()), desc.getValues(), desc.getConfiguration());
+      this(name, Arrays.asList(desc.getColumnFamilies()), desc.getValues());
     }
 
     private ModifyableTableDescriptor(final TableName name, final Collection<ColumnFamilyDescriptor> families,
-            Map<Bytes, Bytes> values, Map<String, String> configuration) {
+            Map<Bytes, Bytes> values) {
       this.name = name;
       families.forEach(c -> this.families.put(c.getName(), ColumnFamilyDescriptorBuilder.copy(c)));
       this.values.putAll(values);
-      this.configuration.putAll(configuration);
       this.values.put(IS_META_KEY,
         new Bytes(Bytes.toBytes(Boolean.toString(name.equals(TableName.META_TABLE_NAME)))));
     }
@@ -548,6 +544,11 @@ public class TableDescriptorBuilder {
     public ModifyableTableDescriptor setValue(byte[] key, byte[] value) {
       return setValue(toBytesOrNull(key, v -> v),
               toBytesOrNull(value, v -> v));
+    }
+
+    public ModifyableTableDescriptor setValue(String key, String value) {
+      return setValue(toBytesOrNull(key, Bytes::toBytes),
+              toBytesOrNull(value, Bytes::toBytes));
     }
 
     /*
@@ -928,7 +929,7 @@ public class TableDescriptorBuilder {
 
       // early exit optimization
       boolean hasAttributes = !reservedKeys.isEmpty() || !userKeys.isEmpty();
-      if (!hasAttributes && configuration.isEmpty()) {
+      if (!hasAttributes) {
         return s;
       }
 
@@ -952,7 +953,7 @@ public class TableDescriptorBuilder {
         }
 
         if (!userKeys.isEmpty()) {
-          // print all non-reserved, advanced config keys as a separate subset
+          // print all non-reserved as a separate subset
           if (printCommaForAttr) {
             s.append(", ");
           }
@@ -974,25 +975,6 @@ public class TableDescriptorBuilder {
         }
       }
 
-      // step 3: printing all configuration:
-      if (!configuration.isEmpty()) {
-        if (hasAttributes) {
-          s.append(", ");
-        }
-        s.append(HConstants.CONFIGURATION).append(" => ");
-        s.append('{');
-        boolean printCommaForConfig = false;
-        for (Map.Entry<String, String> e : configuration.entrySet()) {
-          if (printCommaForConfig) {
-            s.append(", ");
-          }
-          printCommaForConfig = true;
-          s.append('\'').append(e.getKey()).append('\'');
-          s.append(" => ");
-          s.append('\'').append(e.getValue()).append('\'');
-        }
-        s.append("}");
-      }
       s.append("}"); // end METHOD
       return s;
     }
@@ -1012,13 +994,10 @@ public class TableDescriptorBuilder {
       if (this == obj) {
         return true;
       }
-      if (obj == null) {
-        return false;
+      if (obj instanceof ModifyableTableDescriptor) {
+        return TableDescriptor.COMPARATOR.compare(this, (ModifyableTableDescriptor) obj) == 0;
       }
-      if (!(obj instanceof ModifyableTableDescriptor)) {
-        return false;
-      }
-      return compareTo((ModifyableTableDescriptor) obj) == 0;
+      return false;
     }
 
     /**
@@ -1033,7 +1012,6 @@ public class TableDescriptorBuilder {
         }
       }
       result ^= values.hashCode();
-      result ^= configuration.hashCode();
       return result;
     }
 
@@ -1107,7 +1085,7 @@ public class TableDescriptorBuilder {
       setValue(REGION_MEMSTORE_REPLICATION_KEY, Boolean.toString(memstoreReplication));
       // If the memstore replication is setup, we do not have to wait for observing a flush event
       // from primary before starting to serve reads, because gaps from replication is not applicable
-      return setConfiguration(RegionReplicaUtil.REGION_REPLICA_WAIT_FOR_PRIMARY_FLUSH_CONF_KEY,
+      return setValue(REGION_REPLICA_WAIT_FOR_PRIMARY_FLUSH_CONF_KEY,
               Boolean.toString(memstoreReplication));
     }
 
@@ -1395,7 +1373,7 @@ public class TableDescriptorBuilder {
      * @return the bytes in pb format
      */
     private byte[] toByteArray() {
-      return ProtobufUtil.prependPBMagic(ProtobufUtil.convertToTableSchema(this).toByteArray());
+      return ProtobufUtil.prependPBMagic(ProtobufUtil.toTableSchema(this).toByteArray());
     }
 
     /**
@@ -1415,54 +1393,10 @@ public class TableDescriptorBuilder {
       HBaseProtos.TableSchema.Builder builder = HBaseProtos.TableSchema.newBuilder();
       try {
         ProtobufUtil.mergeFrom(builder, bytes, pblen, bytes.length - pblen);
-        return ProtobufUtil.convertToTableDesc(builder.build());
+        return ProtobufUtil.toTableDescriptor(builder.build());
       } catch (IOException e) {
         throw new DeserializationException(e);
       }
-    }
-
-    /**
-     * Getter for accessing the configuration value by key
-     */
-    @Override
-    public String getConfigurationValue(String key) {
-      return configuration.get(key);
-    }
-
-    /**
-     * Getter for fetching an unmodifiable {@link #configuration} map.
-     */
-    @Override
-    public Map<String, String> getConfiguration() {
-      // shallow pointer copy
-      return Collections.unmodifiableMap(configuration);
-    }
-
-    /**
-     * Setter for storing a configuration setting in {@link #configuration} map.
-     *
-     * @param key Config key. Same as XML config key e.g.
-     * hbase.something.or.other.
-     * @param value String value. If null, removes the setting.
-     * @return the modifyable TD
-     */
-    public ModifyableTableDescriptor setConfiguration(String key, String value) {
-      if (value == null) {
-        configuration.remove(key);
-      } else {
-        configuration.put(key, value);
-      }
-      return this;
-    }
-
-    /**
-     * Remove a config setting represented by the key from the
-     * {@link #configuration} map
-     * @param key Config key.
-     * @return the modifyable TD
-     */
-    public ModifyableTableDescriptor removeConfiguration(final String key) {
-      return setConfiguration(key, null);
     }
 
     @Override

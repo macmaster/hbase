@@ -32,11 +32,12 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.hbase.Cell;
 import org.apache.hadoop.hbase.CellScanner;
+import org.apache.hadoop.hbase.CompareOperator;
 import org.apache.hadoop.hbase.NamespaceDescriptor;
 import org.apache.hadoop.hbase.ServerName;
 import org.apache.hadoop.hbase.TableName;
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
-import org.apache.hadoop.hbase.classification.InterfaceStability;
+import org.apache.yetus.audience.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceStability;
 import org.apache.hadoop.hbase.client.ClusterConnection;
 import org.apache.hadoop.hbase.client.Connection;
 import org.apache.hadoop.hbase.client.Get;
@@ -47,7 +48,6 @@ import org.apache.hadoop.hbase.client.ResultScanner;
 import org.apache.hadoop.hbase.client.Scan;
 import org.apache.hadoop.hbase.client.Table;
 import org.apache.hadoop.hbase.filter.ColumnPrefixFilter;
-import org.apache.hadoop.hbase.filter.CompareFilter;
 import org.apache.hadoop.hbase.filter.Filter;
 import org.apache.hadoop.hbase.filter.FilterList;
 import org.apache.hadoop.hbase.filter.QualifierFilter;
@@ -56,6 +56,7 @@ import org.apache.hadoop.hbase.filter.RowFilter;
 import org.apache.hadoop.hbase.protobuf.ProtobufMagic;
 import org.apache.hadoop.hbase.shaded.com.google.protobuf.ByteString;
 import org.apache.hadoop.hbase.shaded.com.google.protobuf.InvalidProtocolBufferException;
+import org.apache.hadoop.hbase.shaded.com.google.protobuf.TextFormat;
 import org.apache.hadoop.hbase.shaded.com.google.protobuf.UnsafeByteOperations;
 import org.apache.hadoop.hbase.shaded.protobuf.ProtobufUtil;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.HBaseProtos;
@@ -196,9 +197,9 @@ public class QuotaTableUtil {
 
       if (!Strings.isEmpty(filter.getNamespaceFilter())) {
         FilterList nsFilters = new FilterList(FilterList.Operator.MUST_PASS_ALL);
-        nsFilters.addFilter(new RowFilter(CompareFilter.CompareOp.EQUAL,
+        nsFilters.addFilter(new RowFilter(CompareOperator.EQUAL,
             new RegexStringComparator(getUserRowKeyRegex(filter.getUserFilter()), 0)));
-        nsFilters.addFilter(new QualifierFilter(CompareFilter.CompareOp.EQUAL,
+        nsFilters.addFilter(new QualifierFilter(CompareOperator.EQUAL,
             new RegexStringComparator(
               getSettingsQualifierRegexForUserNamespace(filter.getNamespaceFilter()), 0)));
         userFilters.addFilter(nsFilters);
@@ -206,25 +207,25 @@ public class QuotaTableUtil {
       }
       if (!Strings.isEmpty(filter.getTableFilter())) {
         FilterList tableFilters = new FilterList(FilterList.Operator.MUST_PASS_ALL);
-        tableFilters.addFilter(new RowFilter(CompareFilter.CompareOp.EQUAL,
+        tableFilters.addFilter(new RowFilter(CompareOperator.EQUAL,
             new RegexStringComparator(getUserRowKeyRegex(filter.getUserFilter()), 0)));
-        tableFilters.addFilter(new QualifierFilter(CompareFilter.CompareOp.EQUAL,
+        tableFilters.addFilter(new QualifierFilter(CompareOperator.EQUAL,
             new RegexStringComparator(
               getSettingsQualifierRegexForUserTable(filter.getTableFilter()), 0)));
         userFilters.addFilter(tableFilters);
         hasFilter = true;
       }
       if (!hasFilter) {
-        userFilters.addFilter(new RowFilter(CompareFilter.CompareOp.EQUAL,
+        userFilters.addFilter(new RowFilter(CompareOperator.EQUAL,
             new RegexStringComparator(getUserRowKeyRegex(filter.getUserFilter()), 0)));
       }
 
       filterList.addFilter(userFilters);
     } else if (!Strings.isEmpty(filter.getTableFilter())) {
-      filterList.addFilter(new RowFilter(CompareFilter.CompareOp.EQUAL,
+      filterList.addFilter(new RowFilter(CompareOperator.EQUAL,
           new RegexStringComparator(getTableRowKeyRegex(filter.getTableFilter()), 0)));
     } else if (!Strings.isEmpty(filter.getNamespaceFilter())) {
-      filterList.addFilter(new RowFilter(CompareFilter.CompareOp.EQUAL,
+      filterList.addFilter(new RowFilter(CompareOperator.EQUAL,
           new RegexStringComparator(getNamespaceRowKeyRegex(filter.getNamespaceFilter()), 0)));
     }
     return filterList;

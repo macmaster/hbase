@@ -19,7 +19,6 @@
 package org.apache.hadoop.hbase.io.hfile;
 
 import java.lang.ref.WeakReference;
-import java.nio.ByteBuffer;
 import java.util.EnumMap;
 import java.util.Iterator;
 import java.util.List;
@@ -32,12 +31,13 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.LongAdder;
 import java.util.concurrent.locks.ReentrantLock;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceAudience;
 import org.apache.hadoop.hbase.io.HeapSize;
 import org.apache.hadoop.hbase.io.encoding.DataBlockEncoding;
 import org.apache.hadoop.hbase.io.hfile.bucket.BucketCache;
@@ -178,13 +178,13 @@ public class LruBlockCache implements ResizableBlockCache, HeapSize {
   private final AtomicLong size;
 
   /** Current size of data blocks */
-  private final AtomicLong dataBlockSize;
+  private final LongAdder dataBlockSize;
 
   /** Current number of cached elements */
   private final AtomicLong elements;
 
   /** Current number of cached data block elements */
-  private final AtomicLong dataBlockElements;
+  private final LongAdder dataBlockElements;
 
   /** Cache access count (sequential ID) */
   private final AtomicLong count;
@@ -321,8 +321,8 @@ public class LruBlockCache implements ResizableBlockCache, HeapSize {
     this.stats = new CacheStats(this.getClass().getSimpleName());
     this.count = new AtomicLong(0);
     this.elements = new AtomicLong(0);
-    this.dataBlockElements = new AtomicLong(0);
-    this.dataBlockSize = new AtomicLong(0);
+    this.dataBlockElements = new LongAdder();
+    this.dataBlockSize = new LongAdder();
     this.overhead = calculateOverhead(maxSize, blockSize, mapConcurrencyLevel);
     this.size = new AtomicLong(this.overhead);
     this.hardCapacityLimitFactor = hardLimitFactor;
@@ -379,7 +379,7 @@ public class LruBlockCache implements ResizableBlockCache, HeapSize {
     LruCachedBlock cb = map.get(cacheKey);
     if (cb != null) {
       // compare the contents, if they are not equal, we are in big trouble
-      if (compare(buf, cb.getBuffer()) != 0) {
+      if (BlockCacheUtil.compareCacheBlock(buf, cb.getBuffer()) != 0) {
         throw new RuntimeException("Cached block contents differ, which should not have happened."
           + "cacheKey:" + cacheKey);
       }
@@ -409,7 +409,7 @@ public class LruBlockCache implements ResizableBlockCache, HeapSize {
     map.put(cacheKey, cb);
     long val = elements.incrementAndGet();
     if (buf.getBlockType().isData()) {
-       dataBlockElements.incrementAndGet();
+       dataBlockElements.increment();
     }
     if (LOG.isTraceEnabled()) {
       long size = map.size();
@@ -439,15 +439,6 @@ public class LruBlockCache implements ResizableBlockCache, HeapSize {
     }
   }
 
-  private int compare(Cacheable left, Cacheable right) {
-    ByteBuffer l = ByteBuffer.allocate(left.getSerializedLength());
-    left.serialize(l);
-    ByteBuffer r = ByteBuffer.allocate(right.getSerializedLength());
-    right.serialize(r);
-    return Bytes.compareTo(l.array(), l.arrayOffset(), l.limit(),
-      r.array(), r.arrayOffset(), r.limit());
-  }
-
   /**
    * Cache the block with the specified name and buffer.
    * <p>
@@ -471,7 +462,7 @@ public class LruBlockCache implements ResizableBlockCache, HeapSize {
       heapsize *= -1;
     }
     if (bt != null && bt.isData()) {
-       dataBlockSize.addAndGet(heapsize);
+       dataBlockSize.add(heapsize);
     }
     return size.addAndGet(heapsize);
   }
@@ -578,7 +569,7 @@ public class LruBlockCache implements ResizableBlockCache, HeapSize {
       assertCounterSanity(size, val);
     }
     if (block.getBuffer().getBlockType().isData()) {
-       dataBlockElements.decrementAndGet();
+       dataBlockElements.decrement();
     }
     if (evictedByEvictionProcess) {
       // When the eviction of the block happened because of invalidation of HFiles, no need to
@@ -589,7 +580,7 @@ public class LruBlockCache implements ResizableBlockCache, HeapSize {
           boolean wait = getCurrentSize() < acceptableSize();
           boolean inMemory = block.getPriority() == BlockPriority.MEMORY;
           ((BucketCache) victimHandler).cacheBlockWithWait(block.getCacheKey(), block.getBuffer(),
-              inMemory, wait);
+              inMemory, true, wait);
         } else {
           victimHandler.cacheBlock(block.getCacheKey(), block.getBuffer());
         }
@@ -840,6 +831,8 @@ public class LruBlockCache implements ResizableBlockCache, HeapSize {
    *
    * @return max size in bytes
    */
+
+  @Override
   public long getMaxSize() {
     return this.maxSize;
   }
@@ -851,7 +844,7 @@ public class LruBlockCache implements ResizableBlockCache, HeapSize {
 
   @Override
   public long getCurrentDataSize() {
-    return this.dataBlockSize.get();
+    return this.dataBlockSize.sum();
   }
 
   @Override
@@ -871,7 +864,7 @@ public class LruBlockCache implements ResizableBlockCache, HeapSize {
 
   @Override
   public long getDataBlockCount() {
-    return this.dataBlockElements.get();
+    return this.dataBlockElements.sum();
   }
 
   EvictionThread getEvictionThread() {

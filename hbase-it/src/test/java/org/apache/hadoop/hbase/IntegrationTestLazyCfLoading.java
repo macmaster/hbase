@@ -43,7 +43,7 @@ import org.apache.hadoop.hbase.util.EnvironmentEdgeManager;
 import org.apache.hadoop.hbase.util.MultiThreadedWriter;
 import org.apache.hadoop.hbase.util.RegionSplitter;
 import org.apache.hadoop.hbase.util.test.LoadTestDataGenerator;
-import org.apache.hadoop.hbase.util.test.LoadTestKVGenerator;
+import org.apache.hadoop.hbase.util.LoadTestKVGenerator;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -165,7 +165,7 @@ public class IntegrationTestLazyCfLoading {
 
     public Filter getScanFilter() {
       SingleColumnValueFilter scf = new SingleColumnValueFilter(ESSENTIAL_CF, FILTER_COLUMN,
-          CompareFilter.CompareOp.EQUAL, Bytes.toBytes(ACCEPTED_VALUE));
+          CompareOperator.EQUAL, Bytes.toBytes(ACCEPTED_VALUE));
       scf.setFilterIfMissing(true);
       return scf;
     }

@@ -36,7 +36,7 @@ import org.apache.hadoop.hbase.client.Durability;
 import org.apache.hadoop.hbase.client.Put;
 import org.apache.hadoop.hbase.client.Table;
 import org.apache.hadoop.hbase.regionserver.HRegionServer;
-import org.apache.hadoop.hbase.regionserver.wal.WALEdit;
+import org.apache.hadoop.hbase.wal.WALEdit;
 import org.apache.hadoop.hbase.testclassification.CoprocessorTests;
 import org.apache.hadoop.hbase.testclassification.MediumTests;
 import org.apache.hadoop.hbase.util.Bytes;
@@ -119,7 +119,7 @@ public class TestRegionServerCoprocessorExceptionWithAbort {
       // it will abort.
       boolean aborted = false;
       for (int i = 0; i < 10; i++) {
-        aborted = regionServer.isAborted(); 
+        aborted = regionServer.isAborted();
         if (aborted) {
           break;
         }
@@ -137,7 +137,7 @@ public class TestRegionServerCoprocessorExceptionWithAbort {
     }
   }
 
-  public static class FailedInitializationObserver extends SimpleRegionObserver {
+  public static class FailedInitializationObserver implements RegionServerCoprocessor {
     @SuppressWarnings("null")
     @Override
     public void start(CoprocessorEnvironment e) throws IOException {

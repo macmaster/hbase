@@ -31,7 +31,7 @@ import java.util.concurrent.TimeUnit;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceAudience;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.Abortable;
 import org.apache.hadoop.hbase.DaemonThreadFactory;
@@ -175,7 +175,7 @@ public class RegionServerFlushTableProcedureManager extends RegionServerProcedur
    * @throws IOException
    */
   private List<Region> getRegionsToFlush(String table) throws IOException {
-    return rss.getOnlineRegions(TableName.valueOf(table));
+    return rss.getRegions(TableName.valueOf(table));
   }
 
   public class FlushTableSubprocedureBuilder implements SubprocedureFactory {

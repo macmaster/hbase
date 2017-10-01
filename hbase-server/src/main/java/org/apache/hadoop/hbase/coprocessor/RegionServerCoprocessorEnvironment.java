@@ -19,16 +19,22 @@
 package org.apache.hadoop.hbase.coprocessor;
 
 import org.apache.hadoop.hbase.CoprocessorEnvironment;
+import org.apache.hadoop.hbase.HBaseInterfaceAudience;
 import org.apache.hadoop.hbase.metrics.MetricRegistry;
-import org.apache.hadoop.hbase.regionserver.RegionServerServices;
+import org.apache.hadoop.hbase.regionserver.CoprocessorRegionServerServices;
+import org.apache.yetus.audience.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceStability;
 
-public interface RegionServerCoprocessorEnvironment extends CoprocessorEnvironment {
+@InterfaceAudience.LimitedPrivate(HBaseInterfaceAudience.COPROC)
+@InterfaceStability.Evolving
+public interface RegionServerCoprocessorEnvironment
+    extends CoprocessorEnvironment<RegionServerCoprocessor> {
   /**
    * Gets the region server services.
    *
    * @return the region server services
    */
-  RegionServerServices getRegionServerServices();
+  CoprocessorRegionServerServices getCoprocessorRegionServerServices();
 
   /**
    * Returns a MetricRegistry that can be used to track metrics at the region server level.

@@ -29,7 +29,7 @@ import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceAudience;
 import org.apache.hadoop.hbase.fs.HFileSystem;
 
 import org.apache.hadoop.hbase.shaded.com.google.common.annotations.VisibleForTesting;
@@ -127,13 +127,13 @@ public class FSDataInputStreamWrapper implements Closeable {
 
   private void setStreamOptions(FSDataInputStream in) {
     try {
-      this.stream.setDropBehind(dropBehind);
+      in.setDropBehind(dropBehind);
     } catch (Exception e) {
       // Skipped.
     }
     if (readahead >= 0) {
       try {
-        this.stream.setReadahead(readahead);
+        in.setReadahead(readahead);
       } catch (Exception e) {
         // Skipped.
       }

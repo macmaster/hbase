@@ -25,6 +25,7 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import java.io.IOException;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -33,27 +34,27 @@ import java.util.Set;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hbase.ClusterStatus.Option;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.HColumnDescriptor;
 import org.apache.hadoop.hbase.HConstants;
-import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.MiniHBaseCluster;
-import org.apache.hadoop.hbase.Waiter;
-import org.apache.hadoop.hbase.client.Admin;
-import org.apache.hadoop.hbase.favored.FavoredNodeAssignmentHelper;
-import org.apache.hadoop.hbase.favored.FavoredNodesPlan;
-import org.apache.hadoop.hbase.master.HMaster;
-import org.apache.hadoop.hbase.master.RegionState;
-import org.apache.hadoop.hbase.master.assignment.RegionStates;
-import org.apache.hadoop.hbase.master.assignment.RegionStates.RegionStateNode;
-import org.apache.hadoop.hbase.master.ServerManager;
-import org.apache.hadoop.hbase.regionserver.Region;
-import org.apache.hadoop.hbase.testclassification.MediumTests;
 import org.apache.hadoop.hbase.ServerName;
 import org.apache.hadoop.hbase.TableName;
+import org.apache.hadoop.hbase.Waiter;
+import org.apache.hadoop.hbase.client.Admin;
+import org.apache.hadoop.hbase.client.RegionInfo;
+import org.apache.hadoop.hbase.favored.FavoredNodeAssignmentHelper;
 import org.apache.hadoop.hbase.favored.FavoredNodesManager;
+import org.apache.hadoop.hbase.favored.FavoredNodesPlan;
+import org.apache.hadoop.hbase.master.HMaster;
 import org.apache.hadoop.hbase.master.LoadBalancer;
+import org.apache.hadoop.hbase.master.ServerManager;
+import org.apache.hadoop.hbase.master.assignment.RegionStates;
+import org.apache.hadoop.hbase.master.assignment.RegionStates.RegionStateNode;
+import org.apache.hadoop.hbase.regionserver.Region;
+import org.apache.hadoop.hbase.testclassification.MediumTests;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.JVMClusterUtil;
 import org.junit.After;
@@ -125,13 +126,13 @@ public class TestFavoredStochasticLoadBalancer extends BalancerTestBase {
     assertTrue("Balancer did not run", admin.balancer());
     TEST_UTIL.waitUntilNoRegionsInTransition(120000);
 
-    List<HRegionInfo> hris = admin.getOnlineRegions(rs1.getRegionServer().getServerName());
-    for (HRegionInfo hri : hris) {
+    List<RegionInfo> hris = admin.getRegions(rs1.getRegionServer().getServerName());
+    for (RegionInfo hri : hris) {
       assertFalse("New RS contains regions belonging to table: " + tableName,
         hri.getTable().equals(tableName));
     }
-    hris = admin.getOnlineRegions(rs2.getRegionServer().getServerName());
-    for (HRegionInfo hri : hris) {
+    hris = admin.getRegions(rs2.getRegionServer().getServerName());
+    for (RegionInfo hri : hris) {
       assertFalse("New RS contains regions belonging to table: " + tableName,
         hri.getTable().equals(tableName));
     }
@@ -149,12 +150,13 @@ public class TestFavoredStochasticLoadBalancer extends BalancerTestBase {
     admin.flush(tableName);
 
     LoadBalancer balancer = master.getLoadBalancer();
-    List<HRegionInfo> regions = admin.getTableRegions(tableName);
+    List<RegionInfo> regions = admin.getRegions(tableName);
     regions.addAll(admin.getTableRegions(TableName.META_TABLE_NAME));
     regions.addAll(admin.getTableRegions(TableName.NAMESPACE_TABLE_NAME));
-    List<ServerName> servers = Lists.newArrayList(admin.getClusterStatus().getServers());
-    Map<ServerName, List<HRegionInfo>> map = balancer.roundRobinAssignment(regions, servers);
-    for (List<HRegionInfo> regionInfos : map.values()) {
+    List<ServerName> servers = Lists.newArrayList(
+      admin.getClusterStatus(EnumSet.of(Option.LIVE_SERVERS)).getServers());
+    Map<ServerName, List<RegionInfo>> map = balancer.roundRobinAssignment(regions, servers);
+    for (List<RegionInfo> regionInfos : map.values()) {
       regions.removeAll(regionInfos);
     }
     assertEquals("No region should be missed by balancer", 0, regions.size());
@@ -171,17 +173,19 @@ public class TestFavoredStochasticLoadBalancer extends BalancerTestBase {
     TEST_UTIL.waitTableAvailable(desc.getTableName());
 
     FavoredNodesManager fnm = master.getFavoredNodesManager();
-    List<HRegionInfo> regionsOfTable = admin.getTableRegions(TableName.valueOf(tableName));
-    for (HRegionInfo rInfo : regionsOfTable) {
+    List<RegionInfo> regionsOfTable = admin.getRegions(TableName.valueOf(tableName));
+    for (RegionInfo rInfo : regionsOfTable) {
       Set<ServerName> favNodes = Sets.newHashSet(fnm.getFavoredNodes(rInfo));
       assertNotNull(favNodes);
       assertEquals(FavoredNodeAssignmentHelper.FAVORED_NODES_NUM, favNodes.size());
     }
 
-    Map<ServerName, List<Integer>> replicaLoadMap =
-        fnm.getReplicaLoad(Lists.newArrayList(admin.getClusterStatus().getServers()));
+    Map<ServerName, List<Integer>> replicaLoadMap = fnm.getReplicaLoad(
+      Lists.newArrayList(admin.getClusterStatus(EnumSet.of(Option.LIVE_SERVERS))
+                              .getServers()));
     assertTrue("Not all replica load collected.",
-      admin.getClusterStatus().getServers().size() == replicaLoadMap.size());
+      admin.getClusterStatus(EnumSet.of(Option.LIVE_SERVERS))
+           .getServers().size() == replicaLoadMap.size());
     for (Entry<ServerName, List<Integer>> entry : replicaLoadMap.entrySet()) {
       assertTrue(entry.getValue().size() == FavoredNodeAssignmentHelper.FAVORED_NODES_NUM);
       assertTrue(entry.getValue().get(0) >= 0);
@@ -191,10 +195,12 @@ public class TestFavoredStochasticLoadBalancer extends BalancerTestBase {
 
     admin.disableTable(TableName.valueOf(tableName));
     admin.deleteTable(TableName.valueOf(tableName));
-    replicaLoadMap =
-        fnm.getReplicaLoad(Lists.newArrayList(admin.getClusterStatus().getServers()));
+    replicaLoadMap = fnm.getReplicaLoad(Lists.newArrayList(
+      admin.getClusterStatus(EnumSet.of(Option.LIVE_SERVERS)).getServers()));
     assertTrue("replica load found " + replicaLoadMap.size() + " instead of 0.",
-      replicaLoadMap.size() == admin.getClusterStatus().getServers().size());
+      replicaLoadMap.size() == admin
+          .getClusterStatus(EnumSet.of(Option.LIVE_SERVERS)).getServers()
+          .size());
   }
 
   @Test
@@ -206,7 +212,7 @@ public class TestFavoredStochasticLoadBalancer extends BalancerTestBase {
     admin.createTable(desc);
     TEST_UTIL.waitTableAvailable(desc.getTableName());
 
-    HRegionInfo hri = admin.getTableRegions(TableName.valueOf(tableName)).get(0);
+    RegionInfo hri = admin.getTableRegions(TableName.valueOf(tableName)).get(0);
 
     FavoredNodesManager fnm = master.getFavoredNodesManager();
     fnm.deleteFavoredNodesForRegions(Lists.newArrayList(hri));
@@ -214,13 +220,13 @@ public class TestFavoredStochasticLoadBalancer extends BalancerTestBase {
 
     LoadBalancer balancer = master.getLoadBalancer();
     ServerName destination = balancer.randomAssignment(hri, Lists.newArrayList(admin
-        .getClusterStatus().getServers()));
+        .getClusterStatus(EnumSet.of(Option.LIVE_SERVERS)).getServers()));
     assertNotNull(destination);
     List<ServerName> favoredNodes = fnm.getFavoredNodes(hri);
     assertNotNull(favoredNodes);
     boolean containsFN = false;
     for (ServerName sn : favoredNodes) {
-      if (ServerName.isSameHostnameAndPort(destination, sn)) {
+      if (ServerName.isSameAddress(destination, sn)) {
         containsFN = true;
       }
     }
@@ -236,7 +242,7 @@ public class TestFavoredStochasticLoadBalancer extends BalancerTestBase {
     admin.createTable(desc, Bytes.toBytes("aaa"), Bytes.toBytes("zzz"), REGION_NUM);
     TEST_UTIL.waitTableAvailable(tableName);
 
-    final HRegionInfo region = admin.getTableRegions(tableName).get(0);
+    final RegionInfo region = admin.getTableRegions(tableName).get(0);
     LOG.info("Region thats supposed to be in transition: " + region);
     FavoredNodesManager fnm = master.getFavoredNodesManager();
     List<ServerName> currentFN = fnm.getFavoredNodes(region);
@@ -274,13 +280,13 @@ public class TestFavoredStochasticLoadBalancer extends BalancerTestBase {
     admin.createTable(desc, Bytes.toBytes("aaa"), Bytes.toBytes("zzz"), REGION_NUM);
     TEST_UTIL.waitTableAvailable(tableName);
 
-    final HRegionInfo misplacedRegion = admin.getTableRegions(tableName).get(0);
+    final RegionInfo misplacedRegion = admin.getTableRegions(tableName).get(0);
     FavoredNodesManager fnm = master.getFavoredNodesManager();
     List<ServerName> currentFN = fnm.getFavoredNodes(misplacedRegion);
     assertNotNull(currentFN);
 
     List<ServerName> serversForNewFN = Lists.newArrayList();
-    for (ServerName sn : admin.getClusterStatus().getServers()) {
+    for (ServerName sn : admin.getClusterStatus(EnumSet.of(Option.LIVE_SERVERS)).getServers()) {
       serversForNewFN.add(ServerName.valueOf(sn.getHostname(), sn.getPort(), NON_STARTCODE));
     }
     for (ServerName sn : currentFN) {
@@ -291,7 +297,7 @@ public class TestFavoredStochasticLoadBalancer extends BalancerTestBase {
     List<ServerName> newFavoredNodes = helper.generateFavoredNodes(misplacedRegion);
     assertNotNull(newFavoredNodes);
     assertEquals(FavoredNodeAssignmentHelper.FAVORED_NODES_NUM, newFavoredNodes.size());
-    Map<HRegionInfo, List<ServerName>> regionFNMap = Maps.newHashMap();
+    Map<RegionInfo, List<ServerName>> regionFNMap = Maps.newHashMap();
     regionFNMap.put(misplacedRegion, newFavoredNodes);
     fnm.updateFavoredNodes(regionFNMap);
 
@@ -305,7 +311,7 @@ public class TestFavoredStochasticLoadBalancer extends BalancerTestBase {
       @Override
       public boolean evaluate() throws Exception {
         ServerName host = regionStates.getRegionServerOfRegion(misplacedRegion);
-        return !ServerName.isSameHostnameAndPort(host, current);
+        return !ServerName.isSameAddress(host, current);
       }
     });
     checkFavoredNodeAssignments(tableName, fnm, regionStates);
@@ -320,7 +326,7 @@ public class TestFavoredStochasticLoadBalancer extends BalancerTestBase {
     admin.createTable(desc, Bytes.toBytes("aaa"), Bytes.toBytes("zzz"), REGION_NUM);
     TEST_UTIL.waitTableAvailable(tableName);
 
-    final HRegionInfo region = admin.getTableRegions(tableName).get(0);
+    final RegionInfo region = admin.getTableRegions(tableName).get(0);
     LOG.info("Region that's supposed to be in transition: " + region);
     FavoredNodesManager fnm = master.getFavoredNodesManager();
     List<ServerName> currentFN = fnm.getFavoredNodes(region);
@@ -358,7 +364,7 @@ public class TestFavoredStochasticLoadBalancer extends BalancerTestBase {
     admin.createTable(desc, Bytes.toBytes("aaa"), Bytes.toBytes("zzz"), REGION_NUM);
     TEST_UTIL.waitTableAvailable(tableName);
 
-    final HRegionInfo region = admin.getTableRegions(tableName).get(0);
+    final RegionInfo region = admin.getTableRegions(tableName).get(0);
     LOG.info("Region that's supposed to be in transition: " + region);
     FavoredNodesManager fnm = master.getFavoredNodesManager();
     List<ServerName> currentFN = fnm.getFavoredNodes(region);
@@ -380,7 +386,7 @@ public class TestFavoredStochasticLoadBalancer extends BalancerTestBase {
 
     // Regenerate FN and assign, everything else should be fine
     List<ServerName> serversForNewFN = Lists.newArrayList();
-    for (ServerName sn : admin.getClusterStatus().getServers()) {
+    for (ServerName sn : admin.getClusterStatus(EnumSet.of(Option.LIVE_SERVERS)).getServers()) {
       serversForNewFN.add(ServerName.valueOf(sn.getHostname(), sn.getPort(), NON_STARTCODE));
     }
 
@@ -388,13 +394,13 @@ public class TestFavoredStochasticLoadBalancer extends BalancerTestBase {
     helper.initialize();
 
     for (RegionStateNode regionState: regionStates.getRegionsInTransition()) {
-      HRegionInfo regionInfo = regionState.getRegionInfo();
+      RegionInfo regionInfo = regionState.getRegionInfo();
       List<ServerName> newFavoredNodes = helper.generateFavoredNodes(regionInfo);
       assertNotNull(newFavoredNodes);
       assertEquals(FavoredNodeAssignmentHelper.FAVORED_NODES_NUM, newFavoredNodes.size());
       LOG.info("Region: " + regionInfo.getEncodedName() + " FN: " + newFavoredNodes);
 
-      Map<HRegionInfo, List<ServerName>> regionFNMap = Maps.newHashMap();
+      Map<RegionInfo, List<ServerName>> regionFNMap = Maps.newHashMap();
       regionFNMap.put(regionInfo, newFavoredNodes);
       fnm.updateFavoredNodes(regionFNMap);
       LOG.info("Assigning region: " + regionInfo.getEncodedName());
@@ -419,7 +425,7 @@ public class TestFavoredStochasticLoadBalancer extends BalancerTestBase {
     admin.createTable(desc, Bytes.toBytes("aaa"), Bytes.toBytes("zzz"), REGION_NUM);
     TEST_UTIL.waitTableAvailable(tableName);
 
-    final HRegionInfo region = admin.getTableRegions(tableName).get(0);
+    final RegionInfo region = admin.getTableRegions(tableName).get(0);
     LOG.info("Region that's supposed to be in transition: " + region);
     FavoredNodesManager fnm = master.getFavoredNodesManager();
     List<ServerName> currentFN = fnm.getFavoredNodes(region);
@@ -440,9 +446,9 @@ public class TestFavoredStochasticLoadBalancer extends BalancerTestBase {
     assertTrue("Region: " + region + " should be RIT",
         regionStatesBeforeMaster.getRegionState(region).isFailedOpen());
 
-    List<HRegionInfo> rit = Lists.newArrayList();
+    List<RegionInfo> rit = Lists.newArrayList();
     for (RegionStateNode regionState: regionStatesBeforeMaster.getRegionsInTransition()) {
-      HRegionInfo regionInfo = regionState.getRegionInfo();
+      RegionInfo regionInfo = regionState.getRegionInfo();
       LOG.debug("Region in transition after stopping FN's: " + regionInfo);
       rit.add(regionInfo);
       assertTrue("Region: " + regionInfo + " should be RIT",
@@ -467,27 +473,27 @@ public class TestFavoredStochasticLoadBalancer extends BalancerTestBase {
     assertTrue("Region: " + region + " should be RIT",
         regionStates.getRegionState(region).isFailedOpen());
 
-    for (HRegionInfo regionInfo : rit) {
+    for (RegionInfo regionInfo : rit) {
       assertTrue("Region: " + regionInfo + " should be RIT",
           regionStates.getRegionState(regionInfo).isFailedOpen());
     }
 
     // Regenerate FN and assign, everything else should be fine
     List<ServerName> serversForNewFN = Lists.newArrayList();
-    for (ServerName sn : admin.getClusterStatus().getServers()) {
+    for (ServerName sn : admin.getClusterStatus(EnumSet.of(Option.LIVE_SERVERS)).getServers()) {
       serversForNewFN.add(ServerName.valueOf(sn.getHostname(), sn.getPort(), NON_STARTCODE));
     }
 
     FavoredNodeAssignmentHelper helper = new FavoredNodeAssignmentHelper(serversForNewFN, conf);
     helper.initialize();
 
-    for (HRegionInfo regionInfo : rit) {
+    for (RegionInfo regionInfo : rit) {
       List<ServerName> newFavoredNodes = helper.generateFavoredNodes(regionInfo);
       assertNotNull(newFavoredNodes);
       assertEquals(FavoredNodeAssignmentHelper.FAVORED_NODES_NUM, newFavoredNodes.size());
       LOG.info("Region: " + regionInfo.getEncodedName() + " FN: " + newFavoredNodes);
 
-      Map<HRegionInfo, List<ServerName>> regionFNMap = Maps.newHashMap();
+      Map<RegionInfo, List<ServerName>> regionFNMap = Maps.newHashMap();
       regionFNMap.put(regionInfo, newFavoredNodes);
       fnm.updateFavoredNodes(regionFNMap);
       LOG.info("Assigning region: " + regionInfo.getEncodedName());
@@ -505,7 +511,7 @@ public class TestFavoredStochasticLoadBalancer extends BalancerTestBase {
 
   private void checkFavoredNodeAssignments(TableName tableName, FavoredNodesManager fnm,
       RegionStates regionStates) throws IOException {
-    for (HRegionInfo hri : admin.getTableRegions(tableName)) {
+    for (RegionInfo hri : admin.getTableRegions(tableName)) {
       ServerName host = regionStates.getRegionServerOfRegion(hri);
       assertNotNull("Region: " + hri.getEncodedName() + " not on FN, current: " + host
               + " FN list: " + fnm.getFavoredNodes(hri),
@@ -516,7 +522,7 @@ public class TestFavoredStochasticLoadBalancer extends BalancerTestBase {
   private void stopServersAndWaitUntilProcessed(List<ServerName> currentFN) throws Exception {
     for (ServerName sn : currentFN) {
       for (JVMClusterUtil.RegionServerThread rst : cluster.getLiveRegionServerThreads()) {
-        if (ServerName.isSameHostnameAndPort(sn, rst.getRegionServer().getServerName())) {
+        if (ServerName.isSameAddress(sn, rst.getRegionServer().getServerName())) {
           LOG.info("Shutting down server: " + sn);
           cluster.stopRegionServer(rst.getRegionServer().getServerName());
           cluster.waitForRegionServerToStop(rst.getRegionServer().getServerName(), 60000);
@@ -538,7 +544,7 @@ public class TestFavoredStochasticLoadBalancer extends BalancerTestBase {
 
   private void compactTable(TableName tableName) throws IOException {
     for(JVMClusterUtil.RegionServerThread t : cluster.getRegionServerThreads()) {
-      for(Region region : t.getRegionServer().getOnlineRegions(tableName)) {
+      for(Region region : t.getRegionServer().getRegions(tableName)) {
         region.compact(true);
       }
     }

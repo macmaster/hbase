@@ -29,9 +29,9 @@ import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.CategoryBasedTimeout;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
-import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.TableName;
+import org.apache.hadoop.hbase.client.RegionInfo;
 import org.apache.hadoop.hbase.procedure2.Procedure;
 import org.apache.hadoop.hbase.procedure2.ProcedureExecutor;
 import org.apache.hadoop.hbase.procedure2.ProcedureTestingUtility;
@@ -123,7 +123,7 @@ public class TestProcedureAdmin {
     final TableName tableName = TableName.valueOf(name.getMethodName());
     final ProcedureExecutor<MasterProcedureEnv> procExec = getMasterProcedureExecutor();
 
-    HRegionInfo[] regions =
+    RegionInfo[] regions =
         MasterProcedureTestingUtility.createTable(procExec, tableName, null, "f");
     UTIL.getAdmin().disableTable(tableName);
     ProcedureTestingUtility.waitNoProcedureRunning(procExec);
@@ -155,7 +155,7 @@ public class TestProcedureAdmin {
     final TableName tableName = TableName.valueOf(name.getMethodName());
     final ProcedureExecutor<MasterProcedureEnv> procExec = getMasterProcedureExecutor();
 
-    HRegionInfo[] regions =
+    RegionInfo[] regions =
         MasterProcedureTestingUtility.createTable(procExec, tableName, null, "f");
     ProcedureTestingUtility.waitNoProcedureRunning(procExec);
     ProcedureTestingUtility.setKillAndToggleBeforeStoreUpdate(procExec, true);
@@ -193,7 +193,7 @@ public class TestProcedureAdmin {
   }
 
   @Test(timeout=60000)
-  public void testListProcedure() throws Exception {
+  public void testGetProcedure() throws Exception {
     final TableName tableName = TableName.valueOf(name.getMethodName());
     final ProcedureExecutor<MasterProcedureEnv> procExec = getMasterProcedureExecutor();
 
@@ -206,10 +206,10 @@ public class TestProcedureAdmin {
     // Wait for one step to complete
     ProcedureTestingUtility.waitProcedure(procExec, procId);
 
-    List<Procedure> listProcedures = procExec.listProcedures();
-    assertTrue(listProcedures.size() >= 1);
+    List<Procedure<?>> procedures = procExec.getProcedures();
+    assertTrue(procedures.size() >= 1);
     boolean found = false;
-    for (Procedure proc: listProcedures) {
+    for (Procedure<?> proc: procedures) {
       if (proc.getProcId() == procId) {
         assertTrue(proc.isRunnable());
         found = true;
@@ -223,8 +223,8 @@ public class TestProcedureAdmin {
     ProcedureTestingUtility.restart(procExec);
     ProcedureTestingUtility.waitNoProcedureRunning(procExec);
     ProcedureTestingUtility.assertProcNotFailed(procExec, procId);
-    listProcedures = procExec.listProcedures();
-    for (Procedure proc: listProcedures) {
+    procedures = procExec.getProcedures();
+    for (Procedure proc: procedures) {
       assertTrue(proc.isSuccess());
     }
   }

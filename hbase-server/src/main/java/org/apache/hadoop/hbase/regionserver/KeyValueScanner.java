@@ -21,7 +21,7 @@ package org.apache.hadoop.hbase.regionserver;
 import java.io.Closeable;
 import java.io.IOException;
 
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceAudience;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.Cell;
 import org.apache.hadoop.hbase.KeyValue;
@@ -95,7 +95,7 @@ public interface KeyValueScanner extends Shipper, Closeable {
    *          this query, based on TTL
    * @return true if the scanner should be included in the query
    */
-  boolean shouldUseScanner(Scan scan, Store store, long oldestUnexpiredTS);
+  boolean shouldUseScanner(Scan scan, HStore store, long oldestUnexpiredTS);
 
   // "Lazy scanner" optimizations
 

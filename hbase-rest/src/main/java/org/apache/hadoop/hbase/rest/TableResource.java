@@ -31,11 +31,11 @@ import javax.ws.rs.QueryParam;
 import javax.ws.rs.core.Context;
 import javax.ws.rs.core.UriInfo;
 
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.hbase.TableName;
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceAudience;
 import org.apache.hadoop.hbase.client.Scan;
 import org.apache.hadoop.hbase.client.Table;
 import org.apache.hadoop.hbase.filter.Filter;
@@ -105,8 +105,9 @@ public class TableResource extends ResourceBase {
       // the RowSpec constructor has a chance to parse
       final @PathParam("rowspec") @Encoded String rowspec,
       final @QueryParam("v") String versions,
-      final @QueryParam("check") String check) throws IOException {
-    return new RowResource(this, rowspec, versions, check);
+      final @QueryParam("check") String check,
+      final @QueryParam("rr") String returnResult) throws IOException {
+    return new RowResource(this, rowspec, versions, check, returnResult);
   }
 
   @Path("{suffixglobbingspec: .*\\*/.+}")
@@ -115,15 +116,14 @@ public class TableResource extends ResourceBase {
       // the RowSpec constructor has a chance to parse
       final @PathParam("suffixglobbingspec") @Encoded String suffixglobbingspec,
       final @QueryParam("v") String versions,
-      final @QueryParam("check") String check) throws IOException {
-    return new RowResource(this, suffixglobbingspec, versions, check);
+      final @QueryParam("check") String check,
+      final @QueryParam("rr") String returnResult) throws IOException {
+    return new RowResource(this, suffixglobbingspec, versions, check, returnResult);
   }
 
   @Path("{scanspec: .*[*]$}")
   public TableScanResource  getScanResource(
-      final @Context UriInfo uriInfo,
       final @PathParam("scanspec") String scanSpec,
-      final @HeaderParam("Accept") String contentType,
       @DefaultValue(Integer.MAX_VALUE + "")
       @QueryParam(Constants.SCAN_LIMIT) int userRequestedLimit,
       @DefaultValue("") @QueryParam(Constants.SCAN_START_ROW) String startRow,
@@ -133,7 +133,7 @@ public class TableResource extends ResourceBase {
       @DefaultValue("-1") @QueryParam(Constants.SCAN_BATCH_SIZE) int batchSize,
       @DefaultValue("0") @QueryParam(Constants.SCAN_START_TIME) long startTime,
       @DefaultValue(Long.MAX_VALUE + "") @QueryParam(Constants.SCAN_END_TIME) long endTime,
-      @DefaultValue("true") @QueryParam(Constants.SCAN_BATCH_SIZE) boolean cacheBlocks,
+      @DefaultValue("true") @QueryParam(Constants.SCAN_CACHE_BLOCKS) boolean cacheBlocks,
       @DefaultValue("false") @QueryParam(Constants.SCAN_REVERSED) boolean reversed,
       @DefaultValue("") @QueryParam(Constants.SCAN_FILTER) String paramFilter) {
     try {
@@ -201,6 +201,7 @@ public class TableResource extends ResourceBase {
       int fetchSize = this.servlet.getConfiguration().getInt(Constants.SCAN_FETCH_SIZE, 10);
       tableScan.setCaching(fetchSize);
       tableScan.setReversed(reversed);
+      tableScan.setCacheBlocks(cacheBlocks);
       return new TableScanResource(hTable.getScanner(tableScan), userRequestedLimit);
     } catch (IOException exp) {
       servlet.getMetrics().incrementFailedScanRequests(1);

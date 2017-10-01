@@ -22,6 +22,7 @@ import java.io.InterruptedIOException;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import java.util.OptionalInt;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -31,8 +32,7 @@ import org.apache.hadoop.hbase.Cell;
 import org.apache.hadoop.hbase.CellUtil;
 import org.apache.hadoop.hbase.KeyValue;
 import org.apache.hadoop.hbase.KeyValueUtil;
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
-import org.apache.hadoop.hbase.client.Scan;
+import org.apache.yetus.audience.InterfaceAudience;
 import org.apache.hadoop.hbase.regionserver.CellSink;
 import org.apache.hadoop.hbase.regionserver.HMobStore;
 import org.apache.hadoop.hbase.regionserver.HStore;
@@ -74,9 +74,7 @@ public class DefaultMobStoreCompactor extends DefaultCompactor {
     @Override
     public InternalScanner createScanner(List<StoreFileScanner> scanners,
         ScanType scanType, FileDetails fd, long smallestReadPoint) throws IOException {
-      Scan scan = new Scan();
-      scan.setMaxVersions(store.getColumnFamilyDescriptor().getMaxVersions());
-      return new StoreScanner(store, store.getScanInfo(), scan, scanners, scanType,
+      return new StoreScanner(store, store.getScanInfo(), OptionalInt.empty(), scanners, scanType,
           smallestReadPoint, fd.earliestPutTs);
     }
   };
@@ -93,7 +91,7 @@ public class DefaultMobStoreCompactor extends DefaultCompactor {
         }
       };
 
-  public DefaultMobStoreCompactor(Configuration conf, Store store) {
+  public DefaultMobStoreCompactor(Configuration conf, HStore store) {
     super(conf, store);
     // The mob cells reside in the mob-enabled column family which is held by HMobStore.
     // During the compaction, the compactor reads the cells from the mob files and

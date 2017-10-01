@@ -45,9 +45,6 @@ import org.apache.hadoop.hbase.client.RegionLocator;
 import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.client.Table;
 import org.apache.hadoop.hbase.io.hfile.HFileScanner;
-import org.apache.hadoop.hbase.shaded.protobuf.ProtobufUtil;
-import org.apache.hadoop.hbase.shaded.protobuf.RequestConverter;
-import org.apache.hadoop.hbase.shaded.protobuf.generated.ClientProtos;
 import org.apache.hadoop.hbase.testclassification.MediumTests;
 import org.apache.hadoop.hbase.testclassification.RegionServerTests;
 import org.apache.hadoop.hbase.util.Bytes;
@@ -55,8 +52,16 @@ import org.apache.hadoop.hbase.util.JVMClusterUtil.RegionServerThread;
 import org.apache.hadoop.hbase.util.Threads;
 import org.apache.hadoop.hdfs.DFSConfigKeys;
 import org.apache.hadoop.util.StringUtils;
-import org.junit.*;
+import org.junit.AfterClass;
+import org.junit.Assert;
+import org.junit.BeforeClass;
+import org.junit.Ignore;
+import org.junit.Test;
 import org.junit.experimental.categories.Category;
+
+import org.apache.hadoop.hbase.shaded.protobuf.ProtobufUtil;
+import org.apache.hadoop.hbase.shaded.protobuf.RequestConverter;
+import org.apache.hadoop.hbase.shaded.protobuf.generated.ClientProtos;
 
 /**
  * Tests for region replicas. Sad that we cannot isolate these without bringing up a whole
@@ -157,7 +162,7 @@ public class TestRegionReplicas {
       openRegion(HTU, getRS(), hriSecondary);
 
       // first try directly against region
-      region = getRS().getFromOnlineRegions(hriSecondary.getEncodedName());
+      region = getRS().getRegion(hriSecondary.getEncodedName());
       assertGet(region, 42, true);
 
       assertGetRpc(hriSecondary, 42, true);
@@ -254,7 +259,7 @@ public class TestRegionReplicas {
       Threads.sleep(4 * refreshPeriod);
 
       LOG.info("Checking results from secondary region replica");
-      Region secondaryRegion = getRS().getFromOnlineRegions(hriSecondary.getEncodedName());
+      Region secondaryRegion = getRS().getRegion(hriSecondary.getEncodedName());
       Assert.assertEquals(1, secondaryRegion.getStore(f).getStorefilesCount());
 
       assertGet(secondaryRegion, 42, true);
@@ -441,11 +446,11 @@ public class TestRegionReplicas {
         region.flush(true);
       }
 
-      Region primaryRegion = getRS().getFromOnlineRegions(hriPrimary.getEncodedName());
+      Region primaryRegion = getRS().getRegion(hriPrimary.getEncodedName());
       Assert.assertEquals(3, primaryRegion.getStore(f).getStorefilesCount());
 
       // Refresh store files on the secondary
-      Region secondaryRegion = getRS().getFromOnlineRegions(hriSecondary.getEncodedName());
+      Region secondaryRegion = getRS().getRegion(hriSecondary.getEncodedName());
       secondaryRegion.getStore(f).refreshStoreFiles();
       Assert.assertEquals(3, secondaryRegion.getStore(f).getStorefilesCount());
 
@@ -472,7 +477,7 @@ public class TestRegionReplicas {
       // should be able to deal with it giving us all the result we expect.
       int keys = 0;
       int sum = 0;
-      for (StoreFile sf: secondaryRegion.getStore(f).getStorefiles()) {
+      for (HStoreFile sf : ((HStore) secondaryRegion.getStore(f)).getStorefiles()) {
         // Our file does not exist anymore. was moved by the compaction above.
         LOG.debug(getRS().getFileSystem().exists(sf.getPath()));
         Assert.assertFalse(getRS().getFileSystem().exists(sf.getPath()));

@@ -20,7 +20,7 @@ package org.apache.hadoop.hbase;
 
 import java.util.Map;
 
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceAudience;
 import org.apache.hadoop.hbase.client.ColumnFamilyDescriptor;
 import org.apache.hadoop.hbase.client.ColumnFamilyDescriptorBuilder;
 import org.apache.hadoop.hbase.client.ColumnFamilyDescriptorBuilder.ModifyableColumnFamilyDescriptor;
@@ -221,9 +221,8 @@ public class HColumnDescriptor implements ColumnFamilyDescriptor, Comparable<HCo
   /**
    * @param key Key whose key and value we're to remove from HCD parameters.
    */
-  public HColumnDescriptor remove(final byte [] key) {
+  public void remove(final byte [] key) {
     getDelegateeForModification().removeValue(new Bytes(key));
-    return this;
   }
 
   /**
@@ -639,13 +638,10 @@ public class HColumnDescriptor implements ColumnFamilyDescriptor, Comparable<HCo
     if (this == obj) {
       return true;
     }
-    if (obj == null) {
-      return false;
+    if (obj instanceof HColumnDescriptor) {
+      return delegatee.equals(((HColumnDescriptor) obj).delegatee);
     }
-    if (!(obj instanceof HColumnDescriptor)) {
-      return false;
-    }
-    return compareTo((HColumnDescriptor)obj) == 0;
+    return false;
   }
 
   /**
@@ -658,7 +654,7 @@ public class HColumnDescriptor implements ColumnFamilyDescriptor, Comparable<HCo
 
   @Override
   public int compareTo(HColumnDescriptor other) {
-    return delegatee.compareTo(other.delegatee);
+    return COMPARATOR.compare(this, other);
   }
 
   /**
@@ -707,9 +703,8 @@ public class HColumnDescriptor implements ColumnFamilyDescriptor, Comparable<HCo
   /**
    * Remove a configuration setting represented by the key.
    */
-  public HColumnDescriptor removeConfiguration(final String key) {
+  public void removeConfiguration(final String key) {
     getDelegateeForModification().removeConfiguration(key);
-    return this;
   }
 
   @Override

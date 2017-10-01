@@ -26,6 +26,7 @@ import static org.junit.Assert.fail;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 
@@ -34,9 +35,9 @@ import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.Abortable;
 import org.apache.hadoop.hbase.CategoryBasedTimeout;
+import org.apache.hadoop.hbase.ClusterStatus.Option;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.HConstants;
-import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.HRegionLocation;
 import org.apache.hadoop.hbase.MetaTableAccessor;
 import org.apache.hadoop.hbase.RegionLocations;
@@ -105,7 +106,7 @@ public class TestMetaWithReplicas {
     });
     l.setBalancerOn(false);
     for (int replicaId = 1; replicaId < 3; replicaId ++) {
-      HRegionInfo h = RegionReplicaUtil.getRegionInfoForReplica(HRegionInfo.FIRST_META_REGIONINFO,
+      RegionInfo h = RegionReplicaUtil.getRegionInfoForReplica(RegionInfoBuilder.FIRST_META_REGIONINFO,
         replicaId);
       try {
         TEST_UTIL.getMiniHBaseCluster().getMaster().getAssignmentManager().waitForAssignment(h);
@@ -187,7 +188,7 @@ public class TestMetaWithReplicas {
         util.getAdmin().flush(TableName.META_TABLE_NAME);
         Thread.sleep(conf.getInt(StorefileRefresherChore.REGIONSERVER_STOREFILE_REFRESH_PERIOD,
             30000) * 6);
-        List<HRegionInfo> regions = MetaTableAccessor.getTableRegions(c, TABLE);
+        List<RegionInfo> regions = MetaTableAccessor.getTableRegions(c, TABLE);
         HRegionLocation hrl = MetaTableAccessor.getRegionLocation(c, regions.get(0));
         // Ensure that the primary server for test table is not the same one as the primary
         // of the meta region since we will be killing the srv holding the meta's primary...
@@ -406,7 +407,8 @@ public class TestMetaWithReplicas {
     // check that the data in the znode is parseable (this would also mean the znode exists)
     byte[] data = ZKUtil.getData(zkw, primaryMetaZnode);
     ServerName currentServer = ProtobufUtil.toServerName(data);
-    Collection<ServerName> liveServers = TEST_UTIL.getAdmin().getClusterStatus().getServers();
+    Collection<ServerName> liveServers = TEST_UTIL.getAdmin()
+        .getClusterStatus(EnumSet.of(Option.LIVE_SERVERS)).getServers();
     ServerName moveToServer = null;
     for (ServerName s : liveServers) {
       if (!currentServer.equals(s)) {
@@ -417,7 +419,7 @@ public class TestMetaWithReplicas {
     final TableName tableName = TableName.valueOf(name.getMethodName());
     TEST_UTIL.createTable(tableName, "f");
     assertTrue(TEST_UTIL.getAdmin().tableExists(tableName));
-    TEST_UTIL.getAdmin().move(HRegionInfo.FIRST_META_REGIONINFO.getEncodedNameAsBytes(),
+    TEST_UTIL.getAdmin().move(RegionInfoBuilder.FIRST_META_REGIONINFO.getEncodedNameAsBytes(),
         Bytes.toBytes(moveToServer.getServerName()));
     int i = 0;
     assert !moveToServer.equals(currentServer);
@@ -460,8 +462,8 @@ public class TestMetaWithReplicas {
   @Ignore @Test // Disabled because fsck and this needs work for AMv2
   public void testHBaseFsckWithExcessMetaReplicas() throws Exception {
     // Create a meta replica (this will be the 4th one) and assign it
-    HRegionInfo h = RegionReplicaUtil.getRegionInfoForReplica(
-        HRegionInfo.FIRST_META_REGIONINFO, 3);
+    RegionInfo h = RegionReplicaUtil.getRegionInfoForReplica(
+        RegionInfoBuilder.FIRST_META_REGIONINFO, 3);
     TEST_UTIL.assignRegion(h);
     HBaseFsckRepair.waitUntilAssigned(TEST_UTIL.getAdmin(), h);
     // check that problem exists

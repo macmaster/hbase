@@ -38,7 +38,6 @@ import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.HColumnDescriptor;
 import org.apache.hadoop.hbase.HConstants;
-import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.HRegionLocation;
 import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.InvalidFamilyOperationException;
@@ -49,12 +48,10 @@ import org.apache.hadoop.hbase.TableNotDisabledException;
 import org.apache.hadoop.hbase.TableNotEnabledException;
 import org.apache.hadoop.hbase.TableNotFoundException;
 import org.apache.hadoop.hbase.exceptions.MergeRegionException;
-import org.apache.hadoop.hbase.regionserver.HRegion;
-import org.apache.hadoop.hbase.regionserver.Store;
-import org.apache.hadoop.hbase.regionserver.StoreFile;
-import org.apache.hadoop.hbase.shaded.protobuf.RequestConverter;
 import org.apache.hadoop.hbase.master.LoadBalancer;
-import org.apache.hadoop.hbase.shaded.protobuf.generated.MasterProtos.MergeTableRegionsRequest;
+import org.apache.hadoop.hbase.regionserver.HRegion;
+import org.apache.hadoop.hbase.regionserver.HStore;
+import org.apache.hadoop.hbase.regionserver.HStoreFile;
 import org.apache.hadoop.hbase.testclassification.ClientTests;
 import org.apache.hadoop.hbase.testclassification.LargeTests;
 import org.apache.hadoop.hbase.util.Bytes;
@@ -68,6 +65,9 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
 import org.junit.rules.TestName;
+
+import org.apache.hadoop.hbase.shaded.protobuf.RequestConverter;
+import org.apache.hadoop.hbase.shaded.protobuf.generated.MasterProtos.MergeTableRegionsRequest;
 
 /**
  * Class to test HBaseAdmin.
@@ -587,10 +587,10 @@ public class TestAdmin1 {
       expectedRegions) throws IOException {
     int numRS = c.getCurrentNrHRS();
     List<HRegionLocation> regions = regionLocator.getAllRegionLocations();
-    Map<ServerName, List<HRegionInfo>> server2Regions = new HashMap<>();
+    Map<ServerName, List<RegionInfo>> server2Regions = new HashMap<>();
     for (HRegionLocation loc : regions) {
       ServerName server = loc.getServerName();
-      List<HRegionInfo> regs = server2Regions.get(server);
+      List<RegionInfo> regs = server2Regions.get(server);
       if (regs == null) {
         regs = new ArrayList<>();
         server2Regions.put(server, regs);
@@ -606,7 +606,7 @@ public class TestAdmin1 {
     float average = (float) expectedRegions/numRS;
     int min = (int)Math.floor(average);
     int max = (int)Math.ceil(average);
-    for (List<HRegionInfo> regionList : server2Regions.values()) {
+    for (List<RegionInfo> regionList : server2Regions.values()) {
       assertTrue("numRS=" + numRS + ", min=" + min + ", max=" + max +
         ", size=" + regionList.size() + ", tablesOnMaster=" + tablesOnMaster,
       regionList.size() == min || regionList.size() == max);
@@ -689,7 +689,7 @@ public class TestAdmin1 {
 
     List<HRegionLocation> regions;
     Iterator<HRegionLocation> hris;
-    HRegionInfo hri;
+    RegionInfo hri;
     ClusterConnection conn = (ClusterConnection) TEST_UTIL.getConnection();
     try (RegionLocator l = TEST_UTIL.getConnection().getRegionLocator(tableName)) {
       regions = l.getAllRegionLocations();
@@ -1159,7 +1159,7 @@ public class TestAdmin1 {
     puts.add(put);
     ht.put(puts);
     ht.close();
-    List<Pair<HRegionInfo, ServerName>> regions =
+    List<Pair<RegionInfo, ServerName>> regions =
         MetaTableAccessor.getTableRegionsAndLocations(TEST_UTIL.getConnection(), tableName);
     boolean gotException = false;
     // the element at index 1 would be a replica (since the metareader gives us ordered
@@ -1213,7 +1213,7 @@ public class TestAdmin1 {
             nameofRegionsToMerge,
             true,
             HConstants.NO_NONCE,
-            HConstants.NO_NONCE);   
+            HConstants.NO_NONCE);
       ((ClusterConnection) TEST_UTIL.getAdmin().getConnection()).getMaster()
         .mergeTableRegions(null, request);
     } catch (org.apache.hadoop.hbase.shaded.com.google.protobuf.ServiceException m) {
@@ -1320,8 +1320,8 @@ public class TestAdmin1 {
 
       List<HRegion> regions = TEST_UTIL.getMiniHBaseCluster().getRegions(tableName);
       for (HRegion r : regions) {
-        Store store = r.getStore(Bytes.toBytes(fn));
-        for (StoreFile sf : store.getStorefiles()) {
+        HStore store = r.getStore(Bytes.toBytes(fn));
+        for (HStoreFile sf : store.getStorefiles()) {
           assertTrue(sf.toString().contains(fn));
           assertTrue("Column family " + fn + " should have 3 copies",
             FSUtils.getDefaultReplication(TEST_UTIL.getTestFileSystem(), sf.getPath()) == (sf
@@ -1329,7 +1329,7 @@ public class TestAdmin1 {
         }
 
         store = r.getStore(Bytes.toBytes(fn1));
-        for (StoreFile sf : store.getStorefiles()) {
+        for (HStoreFile sf : store.getStorefiles()) {
           assertTrue(sf.toString().contains(fn1));
           assertTrue("Column family " + fn1 + " should have only 1 copy", 1 == sf.getFileInfo()
               .getFileStatus().getReplication());
@@ -1356,12 +1356,12 @@ public class TestAdmin1 {
       TEST_UTIL.createTable(td, splitRows);
       TEST_UTIL.waitTableAvailable(tableName);
 
-      List<HRegionInfo> tableRegions;
-      HRegionInfo regionA;
-      HRegionInfo regionB;
+      List<RegionInfo> tableRegions;
+      RegionInfo regionA;
+      RegionInfo regionB;
 
       // merge with full name
-      tableRegions = admin.getTableRegions(tableName);
+      tableRegions = admin.getRegions(tableName);
       assertEquals(3, admin.getTableRegions(tableName).size());
       regionA = tableRegions.get(0);
       regionB = tableRegions.get(1);
@@ -1372,7 +1372,7 @@ public class TestAdmin1 {
       assertEquals(2, admin.getTableRegions(tableName).size());
 
       // merge with encoded name
-      tableRegions = admin.getTableRegions(tableName);
+      tableRegions = admin.getRegions(tableName);
       regionA = tableRegions.get(0);
       regionB = tableRegions.get(1);
       // TODO convert this to version that is synchronous (See HBASE-16668)

@@ -23,7 +23,7 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.MemoryCompactionPolicy;
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceAudience;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.ClassSize;
 
@@ -246,30 +246,27 @@ public class MemStoreCompactor {
     MemStoreSegmentsIterator iterator = null;
 
     switch (action) {
-    case COMPACT:
-      iterator =
-          new MemStoreCompactorSegmentsIterator(versionedList.getStoreSegments(),
-              compactingMemStore.getComparator(),
-              compactionKVMax, compactingMemStore.getStore());
+      case COMPACT:
+        iterator = new MemStoreCompactorSegmentsIterator(versionedList.getStoreSegments(),
+            compactingMemStore.getComparator(), compactionKVMax, compactingMemStore.getStore());
 
-      result = SegmentFactory.instance().createImmutableSegmentByCompaction(
+        result = SegmentFactory.instance().createImmutableSegmentByCompaction(
           compactingMemStore.getConfiguration(), compactingMemStore.getComparator(), iterator,
           versionedList.getNumOfCells(), compactingMemStore.getIndexType());
-      iterator.close();
-      break;
-    case MERGE:
-      iterator =
-          new MemStoreMergerSegmentsIterator(versionedList.getStoreSegments(),
-              compactingMemStore.getComparator(),
-              compactionKVMax);
+        iterator.close();
+        break;
+      case MERGE:
+        iterator = new MemStoreMergerSegmentsIterator(versionedList.getStoreSegments(),
+            compactingMemStore.getComparator(), compactionKVMax);
 
-      result = SegmentFactory.instance().createImmutableSegmentByMerge(
+        result = SegmentFactory.instance().createImmutableSegmentByMerge(
           compactingMemStore.getConfiguration(), compactingMemStore.getComparator(), iterator,
           versionedList.getNumOfCells(), versionedList.getStoreSegments(),
           compactingMemStore.getIndexType());
-      iterator.close();
-      break;
-    default: throw new RuntimeException("Unknown action " + action); // sanity check
+        iterator.close();
+        break;
+      default:
+        throw new RuntimeException("Unknown action " + action); // sanity check
     }
 
     return result;

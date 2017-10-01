@@ -36,19 +36,20 @@ import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.ChoreService;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
-import org.apache.hadoop.hbase.HColumnDescriptor;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.Stoppable;
 import org.apache.hadoop.hbase.client.ClusterConnection;
+import org.apache.hadoop.hbase.client.ColumnFamilyDescriptor;
+import org.apache.hadoop.hbase.client.ColumnFamilyDescriptorBuilder;
 import org.apache.hadoop.hbase.client.ConnectionFactory;
 import org.apache.hadoop.hbase.client.Put;
 import org.apache.hadoop.hbase.master.cleaner.BaseHFileCleanerDelegate;
 import org.apache.hadoop.hbase.master.cleaner.HFileCleaner;
 import org.apache.hadoop.hbase.regionserver.CompactedHFilesDischarger;
 import org.apache.hadoop.hbase.regionserver.HRegion;
+import org.apache.hadoop.hbase.regionserver.HStore;
 import org.apache.hadoop.hbase.regionserver.Region;
 import org.apache.hadoop.hbase.regionserver.RegionServerServices;
-import org.apache.hadoop.hbase.regionserver.Store;
 import org.apache.hadoop.hbase.testclassification.MediumTests;
 import org.apache.hadoop.hbase.testclassification.MiscTests;
 import org.apache.hadoop.hbase.util.Bytes;
@@ -176,11 +177,11 @@ public class TestZooKeeperTableArchiveClient {
     final LongTermArchivingHFileCleaner delegate = (LongTermArchivingHFileCleaner) cleaners.get(0);
 
     // create the region
-    HColumnDescriptor hcd = new HColumnDescriptor(TEST_FAM);
+    ColumnFamilyDescriptor hcd = ColumnFamilyDescriptorBuilder.of(TEST_FAM);
     HRegion region = UTIL.createTestRegion(STRING_TABLE_NAME, hcd);
     List<Region> regions = new ArrayList<>();
     regions.add(region);
-    when(rss.getOnlineRegions()).thenReturn(regions);
+    when(rss.getRegions()).thenReturn(regions);
     final CompactedHFilesDischarger compactionCleaner =
         new CompactedHFilesDischarger(100, stop, rss, false);
     loadFlushAndCompact(region, TEST_FAM);
@@ -229,21 +230,21 @@ public class TestZooKeeperTableArchiveClient {
     List<BaseHFileCleanerDelegate> cleaners = turnOnArchiving(STRING_TABLE_NAME, cleaner);
     final LongTermArchivingHFileCleaner delegate = (LongTermArchivingHFileCleaner) cleaners.get(0);
     // create the region
-    HColumnDescriptor hcd = new HColumnDescriptor(TEST_FAM);
+    ColumnFamilyDescriptor hcd = ColumnFamilyDescriptorBuilder.of(TEST_FAM);
     HRegion region = UTIL.createTestRegion(STRING_TABLE_NAME, hcd);
     List<Region> regions = new ArrayList<>();
     regions.add(region);
-    when(rss.getOnlineRegions()).thenReturn(regions);
+    when(rss.getRegions()).thenReturn(regions);
     final CompactedHFilesDischarger compactionCleaner =
         new CompactedHFilesDischarger(100, stop, rss, false);
     loadFlushAndCompact(region, TEST_FAM);
     compactionCleaner.chore();
     // create the another table that we don't archive
-    hcd = new HColumnDescriptor(TEST_FAM);
+    hcd = ColumnFamilyDescriptorBuilder.of(TEST_FAM);
     HRegion otherRegion = UTIL.createTestRegion(otherTable, hcd);
     regions = new ArrayList<>();
     regions.add(otherRegion);
-    when(rss.getOnlineRegions()).thenReturn(regions);
+    when(rss.getRegions()).thenReturn(regions);
     final CompactedHFilesDischarger compactionCleaner1 = new CompactedHFilesDischarger(100, stop,
         rss, false);
     loadFlushAndCompact(otherRegion, TEST_FAM);
@@ -400,12 +401,12 @@ public class TestZooKeeperTableArchiveClient {
     return allFiles;
   }
 
-  private void loadFlushAndCompact(Region region, byte[] family) throws IOException {
+  private void loadFlushAndCompact(HRegion region, byte[] family) throws IOException {
     // create two hfiles in the region
     createHFileInRegion(region, family);
     createHFileInRegion(region, family);
 
-    Store s = region.getStore(family);
+    HStore s = region.getStore(family);
     int count = s.getStorefilesCount();
     assertTrue("Don't have the expected store files, wanted >= 2 store files, but was:" + count,
       count >= 2);

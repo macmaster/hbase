@@ -17,54 +17,57 @@
  * limitations under the License.
  */
 --%>
-<%@page import="org.apache.hadoop.hbase.protobuf.generated.HBaseProtos.RegionSpecifier.RegionSpecifierType"%>
+<%@page import="java.net.URLEncoder"%>
 <%@ page contentType="text/html;charset=UTF-8"
-  import="static org.apache.commons.lang.StringEscapeUtils.escapeXml"
-  import="org.apache.hadoop.hbase.shaded.com.google.protobuf.ByteString"
-  import="java.net.URLEncoder"
+  import="static org.apache.commons.lang3.StringEscapeUtils.escapeXml"
   import="java.util.ArrayList"
-  import="java.util.TreeMap"
-  import="java.util.List"
-  import="java.util.LinkedHashMap"
-  import="java.util.Map"
-  import="java.util.Set"
   import="java.util.Collection"
   import="java.util.Collections"
   import="java.util.Comparator"
-  import="org.apache.commons.lang.StringEscapeUtils"
+  import="java.util.LinkedHashMap"
+  import="java.util.List"
+  import="java.util.Map"
+  import="java.util.TreeMap"
+  import="org.apache.commons.lang3.StringEscapeUtils"
   import="org.apache.hadoop.conf.Configuration"
-  import="org.apache.hadoop.util.StringUtils"
-  import="org.apache.hadoop.hbase.HRegionInfo"
-  import="org.apache.hadoop.hbase.HRegionLocation"
-  import="org.apache.hadoop.hbase.ServerName"
-  import="org.apache.hadoop.hbase.ServerLoad"
-  import="org.apache.hadoop.hbase.RegionLoad"
+  import="org.apache.hadoop.hbase.HBaseConfiguration"
+  import="org.apache.hadoop.hbase.HColumnDescriptor"
   import="org.apache.hadoop.hbase.HConstants"
+  import="org.apache.hadoop.hbase.HRegionLocation"
+  import="org.apache.hadoop.hbase.RegionLoad"
+  import="org.apache.hadoop.hbase.ServerLoad"
+  import="org.apache.hadoop.hbase.ServerName"
+  import="org.apache.hadoop.hbase.TableName"
+  import="org.apache.hadoop.hbase.TableNotFoundException"
+  import="org.apache.hadoop.hbase.client.Admin"
+  import="org.apache.hadoop.hbase.client.CompactionState"
+  import="org.apache.hadoop.hbase.client.RegionInfo"
+  import="org.apache.hadoop.hbase.client.RegionInfoBuilder"
+  import="org.apache.hadoop.hbase.client.RegionLocator"
+  import="org.apache.hadoop.hbase.client.RegionReplicaUtil"
+  import="org.apache.hadoop.hbase.client.Table"
   import="org.apache.hadoop.hbase.master.HMaster"
-  import="org.apache.hadoop.hbase.zookeeper.MetaTableLocator"
   import="org.apache.hadoop.hbase.quotas.QuotaTableUtil"
   import="org.apache.hadoop.hbase.quotas.SpaceQuotaSnapshot"
   import="org.apache.hadoop.hbase.util.Bytes"
   import="org.apache.hadoop.hbase.util.FSUtils"
-  import="org.apache.hadoop.hbase.shaded.protobuf.generated.ClusterStatusProtos"
-  import="org.apache.hadoop.hbase.shaded.protobuf.generated.HBaseProtos"
-  import="org.apache.hadoop.hbase.shaded.protobuf.generated.QuotaProtos.Quotas"
-  import="org.apache.hadoop.hbase.shaded.protobuf.generated.QuotaProtos.SpaceQuota"
-  import="org.apache.hadoop.hbase.TableName"
-  import="org.apache.hadoop.hbase.HColumnDescriptor"
-  import="org.apache.hadoop.hbase.HBaseConfiguration"
-  import="org.apache.hadoop.hbase.TableNotFoundException"%>
-<%@ page import="org.apache.hadoop.hbase.client.*" %>
+  import="org.apache.hadoop.hbase.zookeeper.MetaTableLocator"
+  import="org.apache.hadoop.util.StringUtils"
+  import="org.apache.hadoop.hbase.shaded.com.google.protobuf.ByteString"%>
+<%@ page import="org.apache.hadoop.hbase.shaded.protobuf.generated.ClusterStatusProtos" %>
+<%@ page import="org.apache.hadoop.hbase.shaded.protobuf.generated.HBaseProtos" %>
+<%@ page import="org.apache.hadoop.hbase.shaded.protobuf.generated.QuotaProtos.Quotas" %>
+<%@ page import="org.apache.hadoop.hbase.shaded.protobuf.generated.QuotaProtos.SpaceQuota" %>
 <%!
   /**
-   * @return An empty region load stamped with the passed in <code>hri</code>
+   * @return An empty region load stamped with the passed in <code>regionInfo</code>
    * region name.
    */
-  private RegionLoad getEmptyRegionLoad(final HRegionInfo hri) {
+  private RegionLoad getEmptyRegionLoad(final RegionInfo regionInfo) {
     return new RegionLoad(ClusterStatusProtos.RegionLoad.newBuilder().
       setRegionSpecifier(HBaseProtos.RegionSpecifier.newBuilder().
       setType(HBaseProtos.RegionSpecifier.RegionSpecifierType.REGION_NAME).
-      setValue(ByteString.copyFrom(hri.getRegionName())).build()).build());
+      setValue(ByteString.copyFrom(regionInfo.getRegionName())).build()).build());
   }
 %>
 <%
@@ -73,7 +76,7 @@
 
   MetaTableLocator metaTableLocator = new MetaTableLocator();
   String fqtn = request.getParameter("name");
-  final String escaped_fqtn = StringEscapeUtils.escapeHtml(fqtn);
+  final String escaped_fqtn = StringEscapeUtils.escapeHtml4(fqtn);
   String sortKey = request.getParameter("sort");
   String reverse = request.getParameter("reverse");
   final boolean reverseOrder = (reverse==null||!reverse.equals("false"));
@@ -122,7 +125,7 @@
   <head>
     <meta charset="utf-8">
     <% if ( !readOnly && action != null ) { %>
-        <title>HBase Master: <%= StringEscapeUtils.escapeHtml(master.getServerName().toString()) %></title>
+        <title>HBase Master: <%= StringEscapeUtils.escapeHtml4(master.getServerName().toString()) %></title>
     <% } else { %>
         <title>Table: <%= escaped_fqtn %></title>
     <% } %>
@@ -205,10 +208,10 @@ if ( fqtn != null ) {
     %> Split request accepted. <%
     } else if (action.equals("compact")) {
       if (key != null && key.length() > 0) {
-        List<HRegionInfo> regions = admin.getTableRegions(TableName.valueOf(fqtn));
+        List<RegionInfo> regions = admin.getRegions(TableName.valueOf(fqtn));
         byte[] row = Bytes.toBytes(key);
 
-        for (HRegionInfo region : regions) {
+        for (RegionInfo region : regions) {
           if (region.containsRow(row)) {
             admin.compactRegion(region.getRegionName());
           }
@@ -244,8 +247,8 @@ if ( fqtn != null ) {
 <%
   // NOTE: Presumes meta with one or more replicas
   for (int j = 0; j < numMetaReplicas; j++) {
-    HRegionInfo meta = RegionReplicaUtil.getRegionInfoForReplica(
-                            HRegionInfo.FIRST_META_REGIONINFO, j);
+    RegionInfo meta = RegionReplicaUtil.getRegionInfoForReplica(
+                            RegionInfoBuilder.FIRST_META_REGIONINFO, j);
     ServerName metaLocation = metaTableLocator.waitMetaRegionLocation(master.getZooKeeper(), j, 1);
     for (int i = 0; i < 1; i++) {
       String url = "";
@@ -276,7 +279,7 @@ if ( fqtn != null ) {
 %>
 <tr>
   <td><%= escapeXml(meta.getRegionNameAsString()) %></td>
-    <td><a href="<%= url %>"><%= StringEscapeUtils.escapeHtml(metaLocation.getHostname().toString()) + ":" + master.getRegionServerInfoPort(metaLocation) %></a></td>
+    <td><a href="<%= url %>"><%= StringEscapeUtils.escapeHtml4(metaLocation.getHostname().toString()) + ":" + master.getRegionServerInfoPort(metaLocation) %></a></td>
     <td><%= readReq%></td>
     <td><%= writeReq%></td>
     <td><%= fileSize%></td>
@@ -317,7 +320,7 @@ if ( fqtn != null ) {
   } catch (Exception e) {
     // Nothing really to do here
     for(StackTraceElement element : e.getStackTrace()) {
-      %><%= StringEscapeUtils.escapeHtml(element.toString()) %><%
+      %><%= StringEscapeUtils.escapeHtml4(element.toString()) %><%
     }
 %> Unknown <%
   }
@@ -398,7 +401,7 @@ if ( fqtn != null ) {
     for (HColumnDescriptor family: families) {
   %>
   <tr>
-    <td><%= StringEscapeUtils.escapeHtml(family.getNameAsString()) %></td>
+    <td><%= StringEscapeUtils.escapeHtml4(family.getNameAsString()) %></td>
     <td>
     <table class="table table-striped">
       <tr>
@@ -411,10 +414,10 @@ if ( fqtn != null ) {
     %>
       <tr>
         <td>
-          <%= StringEscapeUtils.escapeHtml(familyKey.toString()) %>
+          <%= StringEscapeUtils.escapeHtml4(familyKey.toString()) %>
 		</td>
         <td>
-          <%= StringEscapeUtils.escapeHtml(familyValues.get(familyKey).toString()) %>
+          <%= StringEscapeUtils.escapeHtml4(familyValues.get(familyKey).toString()) %>
         </td>
       </tr>
     <% } %>
@@ -433,10 +436,10 @@ if ( fqtn != null ) {
   Map<ServerName, Integer> regDistribution = new TreeMap<>();
   Map<ServerName, Integer> primaryRegDistribution = new TreeMap<>();
   List<HRegionLocation> regions = r.getAllRegionLocations();
-  Map<HRegionInfo, RegionLoad> regionsToLoad = new LinkedHashMap<>();
-  Map<HRegionInfo, ServerName> regionsToServer = new LinkedHashMap<>();
+  Map<RegionInfo, RegionLoad> regionsToLoad = new LinkedHashMap<>();
+  Map<RegionInfo, ServerName> regionsToServer = new LinkedHashMap<>();
   for (HRegionLocation hriEntry : regions) {
-    HRegionInfo regionInfo = hriEntry.getRegionInfo();
+    RegionInfo regionInfo = hriEntry.getRegionInfo();
     ServerName addr = hriEntry.getServerName();
     regionsToServer.put(regionInfo, addr);
 
@@ -506,14 +509,14 @@ ShowDetailName&Start/End Key<input type="checkbox" id="showWhole" style="margin-
 </tr>
 
 <%
-  List<Map.Entry<HRegionInfo, RegionLoad>> entryList = new ArrayList<>(regionsToLoad.entrySet());
+  List<Map.Entry<RegionInfo, RegionLoad>> entryList = new ArrayList<>(regionsToLoad.entrySet());
   if(sortKey != null) {
     if (sortKey.equals("readrequest")) {
       Collections.sort(entryList,
-          new Comparator<Map.Entry<HRegionInfo, RegionLoad>>() {
+          new Comparator<Map.Entry<RegionInfo, RegionLoad>>() {
             public int compare(
-                Map.Entry<HRegionInfo, RegionLoad> entry1,
-                Map.Entry<HRegionInfo, RegionLoad> entry2) {
+                Map.Entry<RegionInfo, RegionLoad> entry1,
+                Map.Entry<RegionInfo, RegionLoad> entry2) {
               if (entry1 == null || entry1.getValue() == null) {
                 return -1;
               } else if (entry2 == null || entry2.getValue() == null) {
@@ -533,10 +536,10 @@ ShowDetailName&Start/End Key<input type="checkbox" id="showWhole" style="margin-
           });
     } else if (sortKey.equals("writerequest")) {
       Collections.sort(entryList,
-          new Comparator<Map.Entry<HRegionInfo, RegionLoad>>() {
+          new Comparator<Map.Entry<RegionInfo, RegionLoad>>() {
             public int compare(
-                Map.Entry<HRegionInfo, RegionLoad> entry1,
-                Map.Entry<HRegionInfo, RegionLoad> entry2) {
+                Map.Entry<RegionInfo, RegionLoad> entry1,
+                Map.Entry<RegionInfo, RegionLoad> entry2) {
               if (entry1 == null || entry1.getValue() == null) {
                 return -1;
               } else if (entry2 == null || entry2.getValue() == null) {
@@ -558,10 +561,10 @@ ShowDetailName&Start/End Key<input type="checkbox" id="showWhole" style="margin-
           });
     } else if (sortKey.equals("size")) {
       Collections.sort(entryList,
-          new Comparator<Map.Entry<HRegionInfo, RegionLoad>>() {
+          new Comparator<Map.Entry<RegionInfo, RegionLoad>>() {
             public int compare(
-                Map.Entry<HRegionInfo, RegionLoad> entry1,
-                Map.Entry<HRegionInfo, RegionLoad> entry2) {
+                Map.Entry<RegionInfo, RegionLoad> entry1,
+                Map.Entry<RegionInfo, RegionLoad> entry2) {
               if (entry1 == null || entry1.getValue() == null) {
                 return -1;
               } else if (entry2 == null || entry2.getValue() == null) {
@@ -583,10 +586,10 @@ ShowDetailName&Start/End Key<input type="checkbox" id="showWhole" style="margin-
           });
     } else if (sortKey.equals("filecount")) {
       Collections.sort(entryList,
-          new Comparator<Map.Entry<HRegionInfo, RegionLoad>>() {
+          new Comparator<Map.Entry<RegionInfo, RegionLoad>>() {
             public int compare(
-                Map.Entry<HRegionInfo, RegionLoad> entry1,
-                Map.Entry<HRegionInfo, RegionLoad> entry2) {
+                Map.Entry<RegionInfo, RegionLoad> entry1,
+                Map.Entry<RegionInfo, RegionLoad> entry2) {
               if (entry1 == null || entry1.getValue() == null) {
                 return -1;
               } else if (entry2 == null || entry2.getValue() == null) {
@@ -608,10 +611,10 @@ ShowDetailName&Start/End Key<input type="checkbox" id="showWhole" style="margin-
           });
     } else if (sortKey.equals("memstore")) {
       Collections.sort(entryList,
-          new Comparator<Map.Entry<HRegionInfo, RegionLoad>>() {
+          new Comparator<Map.Entry<RegionInfo, RegionLoad>>() {
             public int compare(
-                Map.Entry<HRegionInfo, RegionLoad> entry1,
-                Map.Entry<HRegionInfo, RegionLoad> entry2) {
+                Map.Entry<RegionInfo, RegionLoad> entry1,
+                Map.Entry<RegionInfo, RegionLoad> entry2) {
               if (entry1 == null || entry1.getValue()==null) {
                 return -1;
               } else if (entry2 == null || entry2.getValue()==null) {
@@ -633,10 +636,10 @@ ShowDetailName&Start/End Key<input type="checkbox" id="showWhole" style="margin-
           });
     } else if (sortKey.equals("locality")) {
       Collections.sort(entryList,
-          new Comparator<Map.Entry<HRegionInfo, RegionLoad>>() {
+          new Comparator<Map.Entry<RegionInfo, RegionLoad>>() {
             public int compare(
-                Map.Entry<HRegionInfo, RegionLoad> entry1,
-                Map.Entry<HRegionInfo, RegionLoad> entry2) {
+                Map.Entry<RegionInfo, RegionLoad> entry1,
+                Map.Entry<RegionInfo, RegionLoad> entry2) {
               if (entry1 == null || entry1.getValue()==null) {
                 return -1;
               } else if (entry2 == null || entry2.getValue()==null) {
@@ -664,8 +667,8 @@ ShowDetailName&Start/End Key<input type="checkbox" id="showWhole" style="margin-
   if (numRegionsToRender < 0) {
     numRegionsToRender = numRegions;
   }
-  for (Map.Entry<HRegionInfo, RegionLoad> hriEntry : entryList) {
-    HRegionInfo regionInfo = hriEntry.getKey();
+  for (Map.Entry<RegionInfo, RegionLoad> hriEntry : entryList) {
+    RegionInfo regionInfo = hriEntry.getKey();
     ServerName addr = regionsToServer.get(regionInfo);
     RegionLoad load = hriEntry.getValue();
     String readReq = "N/A";
@@ -708,7 +711,7 @@ ShowDetailName&Start/End Key<input type="checkbox" id="showWhole" style="margin-
   if (urlRegionServer != null) {
   %>
   <td>
-     <a href="<%= urlRegionServer %>"><%= StringEscapeUtils.escapeHtml(addr.getHostname().toString()) + ":" + master.getRegionServerInfoPort(addr) %></a>
+     <a href="<%= urlRegionServer %>"><%= StringEscapeUtils.escapeHtml4(addr.getHostname().toString()) + ":" + master.getRegionServerInfoPort(addr) %></a>
   </td>
   <%
   } else {
@@ -761,7 +764,7 @@ if (withReplica) {
      String url = "//" + URLEncoder.encode(addr.getHostname()) + ":" + master.getRegionServerInfoPort(addr) + "/";
 %>
 <tr>
-  <td><a href="<%= url %>"><%= StringEscapeUtils.escapeHtml(addr.getHostname().toString()) + ":" + master.getRegionServerInfoPort(addr) %></a></td>
+  <td><a href="<%= url %>"><%= StringEscapeUtils.escapeHtml4(addr.getHostname().toString()) + ":" + master.getRegionServerInfoPort(addr) %></a></td>
   <td><%= rdEntry.getValue()%></td>
 <%
 if (withReplica) {
@@ -776,7 +779,7 @@ if (withReplica) {
 <% }
 } catch(Exception ex) {
   for(StackTraceElement element : ex.getStackTrace()) {
-    %><%= StringEscapeUtils.escapeHtml(element.toString()) %><%
+    %><%= StringEscapeUtils.escapeHtml4(element.toString()) %><%
   }
 } finally {
   admin.close();
@@ -894,7 +897,7 @@ Actions:
 
 <script>
 var index=0;
-var sortKeyValue='<%= StringEscapeUtils.escapeJavaScript(sortKey) %>';
+var sortKeyValue='<%= StringEscapeUtils.escapeEcmaScript(sortKey) %>';
 if(sortKeyValue=="readrequest")index=1;
 else if(sortKeyValue=="writerequest")index=2;
 else if(sortKeyValue=="size")index=3;

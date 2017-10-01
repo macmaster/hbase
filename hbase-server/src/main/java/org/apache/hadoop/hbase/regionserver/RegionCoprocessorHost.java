@@ -1,4 +1,4 @@
-/*
+/**
  *
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
@@ -29,23 +29,21 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.regex.Matcher;
 
-import org.apache.commons.collections.map.AbstractReferenceMap;
-import org.apache.commons.collections.map.ReferenceMap;
-import org.apache.commons.lang.ClassUtils;
+import com.google.protobuf.Message;
+import com.google.protobuf.Service;
+import org.apache.commons.collections4.map.AbstractReferenceMap;
+import org.apache.commons.collections4.map.ReferenceMap;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.Cell;
+import org.apache.hadoop.hbase.CompareOperator;
 import org.apache.hadoop.hbase.Coprocessor;
 import org.apache.hadoop.hbase.HBaseConfiguration;
 import org.apache.hadoop.hbase.HBaseInterfaceAudience;
 import org.apache.hadoop.hbase.HConstants;
-import org.apache.hadoop.hbase.HRegionInfo;
-import org.apache.hadoop.hbase.HTableDescriptor;
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
-import org.apache.hadoop.hbase.classification.InterfaceStability;
 import org.apache.hadoop.hbase.client.Append;
 import org.apache.hadoop.hbase.client.Delete;
 import org.apache.hadoop.hbase.client.Durability;
@@ -53,38 +51,40 @@ import org.apache.hadoop.hbase.client.Get;
 import org.apache.hadoop.hbase.client.Increment;
 import org.apache.hadoop.hbase.client.Mutation;
 import org.apache.hadoop.hbase.client.Put;
+import org.apache.hadoop.hbase.client.RegionInfo;
 import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.client.Scan;
 import org.apache.hadoop.hbase.client.TableDescriptor;
+import org.apache.hadoop.hbase.coprocessor.BaseEnvironment;
+import org.apache.hadoop.hbase.coprocessor.BulkLoadObserver;
 import org.apache.hadoop.hbase.coprocessor.CoprocessorHost;
 import org.apache.hadoop.hbase.coprocessor.CoprocessorService;
+import org.apache.hadoop.hbase.coprocessor.CoprocessorServiceBackwardCompatiblity;
 import org.apache.hadoop.hbase.coprocessor.EndpointObserver;
 import org.apache.hadoop.hbase.coprocessor.MetricsCoprocessor;
 import org.apache.hadoop.hbase.coprocessor.ObserverContext;
+import org.apache.hadoop.hbase.coprocessor.RegionCoprocessor;
 import org.apache.hadoop.hbase.coprocessor.RegionCoprocessorEnvironment;
 import org.apache.hadoop.hbase.coprocessor.RegionObserver;
 import org.apache.hadoop.hbase.coprocessor.RegionObserver.MutationType;
 import org.apache.hadoop.hbase.filter.ByteArrayComparable;
-import org.apache.hadoop.hbase.filter.CompareFilter.CompareOp;
 import org.apache.hadoop.hbase.io.FSDataInputStreamWrapper;
 import org.apache.hadoop.hbase.io.Reference;
 import org.apache.hadoop.hbase.io.hfile.CacheConfig;
-import org.apache.hadoop.hbase.ipc.RpcServer;
 import org.apache.hadoop.hbase.metrics.MetricRegistry;
 import org.apache.hadoop.hbase.regionserver.Region.Operation;
-import org.apache.hadoop.hbase.regionserver.compactions.CompactionRequest;
+import org.apache.hadoop.hbase.regionserver.compactions.CompactionLifeCycleTracker;
 import org.apache.hadoop.hbase.regionserver.querymatcher.DeleteTracker;
-import org.apache.hadoop.hbase.regionserver.wal.WALEdit;
 import org.apache.hadoop.hbase.security.User;
+import org.apache.hadoop.hbase.shaded.com.google.common.collect.ImmutableList;
+import org.apache.hadoop.hbase.shaded.com.google.common.collect.Lists;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.CoprocessorClassLoader;
 import org.apache.hadoop.hbase.util.Pair;
+import org.apache.hadoop.hbase.wal.WALEdit;
 import org.apache.hadoop.hbase.wal.WALKey;
-
-import org.apache.hadoop.hbase.shaded.com.google.common.collect.ImmutableList;
-import org.apache.hadoop.hbase.shaded.com.google.common.collect.Lists;
-import com.google.protobuf.Message;
-import com.google.protobuf.Service;
+import org.apache.yetus.audience.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceStability;
 
 /**
  * Implements the coprocessor environment and runtime support for coprocessors
@@ -93,21 +93,22 @@ import com.google.protobuf.Service;
 @InterfaceAudience.LimitedPrivate(HBaseInterfaceAudience.COPROC)
 @InterfaceStability.Evolving
 public class RegionCoprocessorHost
-    extends CoprocessorHost<RegionCoprocessorHost.RegionEnvironment> {
+    extends CoprocessorHost<RegionCoprocessor, RegionCoprocessorEnvironment> {
 
   private static final Log LOG = LogFactory.getLog(RegionCoprocessorHost.class);
   // The shared data map
-  private static ReferenceMap sharedDataMap =
-      new ReferenceMap(AbstractReferenceMap.HARD, AbstractReferenceMap.WEAK);
+  private static final ReferenceMap<String, ConcurrentMap<String, Object>> SHARED_DATA_MAP =
+      new ReferenceMap<>(AbstractReferenceMap.ReferenceStrength.HARD,
+          AbstractReferenceMap.ReferenceStrength.WEAK);
 
   // optimization: no need to call postScannerFilterRow, if no coprocessor implements it
   private final boolean hasCustomPostScannerFilterRow;
 
   /**
-   * 
+   *
    * Encapsulation of the environment of each coprocessor
    */
-  static class RegionEnvironment extends CoprocessorHost.Environment
+  static class RegionEnvironment extends BaseEnvironment<RegionCoprocessor>
       implements RegionCoprocessorEnvironment {
 
     private Region region;
@@ -120,7 +121,7 @@ public class RegionCoprocessorHost
      * @param impl the coprocessor instance
      * @param priority chaining priority
      */
-    public RegionEnvironment(final Coprocessor impl, final int priority,
+    public RegionEnvironment(final RegionCoprocessor impl, final int priority,
         final int seq, final Configuration conf, final Region region,
         final RegionServerServices services, final ConcurrentMap<String, Object> sharedData) {
       super(impl, priority, seq, conf);
@@ -139,10 +140,11 @@ public class RegionCoprocessorHost
 
     /** @return reference to the region server services */
     @Override
-    public RegionServerServices getRegionServerServices() {
+    public CoprocessorRegionServerServices getCoprocessorRegionServerServices() {
       return rsServices;
     }
 
+    @Override
     public void shutdown() {
       super.shutdown();
       MetricsCoprocessor.removeRegistry(this.metricRegistry);
@@ -154,7 +156,7 @@ public class RegionCoprocessorHost
     }
 
     @Override
-    public HRegionInfo getRegionInfo() {
+    public RegionInfo getRegionInfo() {
       return region.getRegionInfo();
     }
 
@@ -227,7 +229,7 @@ public class RegionCoprocessorHost
 
     // now check whether any coprocessor implements postScannerFilterRow
     boolean hasCustomPostScannerFilterRow = false;
-    out: for (RegionEnvironment env: coprocessors) {
+    out: for (RegionCoprocessorEnvironment env: coprocEnvironments) {
       if (env.getInstance() instanceof RegionObserver) {
         Class<?> clazz = env.getInstance().getClass();
         for(;;) {
@@ -362,13 +364,16 @@ public class RegionCoprocessorHost
 
     // scan the table attributes for coprocessor load specifications
     // initialize the coprocessors
-    List<RegionEnvironment> configured = new ArrayList<>();
+    List<RegionCoprocessorEnvironment> configured = new ArrayList<>();
     for (TableCoprocessorAttribute attr: getTableCoprocessorAttrsFromSchema(conf,
         region.getTableDescriptor())) {
       // Load encompasses classloading and coprocessor initialization
       try {
-        RegionEnvironment env = load(attr.getPath(), attr.getClassName(), attr.getPriority(),
-          attr.getConf());
+        RegionCoprocessorEnvironment env = load(attr.getPath(), attr.getClassName(),
+            attr.getPriority(), attr.getConf());
+        if (env == null) {
+          continue;
+        }
         configured.add(env);
         LOG.info("Loaded coprocessor " + attr.getClassName() + " from HTD of " +
             region.getTableDescriptor().getTableName().getNameAsString() + " successfully.");
@@ -382,37 +387,77 @@ public class RegionCoprocessorHost
       }
     }
     // add together to coprocessor set for COW efficiency
-    coprocessors.addAll(configured);
+    coprocEnvironments.addAll(configured);
   }
 
   @Override
-  public RegionEnvironment createEnvironment(Class<?> implClass,
-      Coprocessor instance, int priority, int seq, Configuration conf) {
-    // Check if it's an Endpoint.
-    // Due to current dynamic protocol design, Endpoint
-    // uses a different way to be registered and executed.
-    // It uses a visitor pattern to invoke registered Endpoint
-    // method.
-    for (Object itf : ClassUtils.getAllInterfaces(implClass)) {
-      Class<?> c = (Class<?>) itf;
-      if (CoprocessorService.class.isAssignableFrom(c)) {
-        region.registerService( ((CoprocessorService)instance).getService() );
-      }
+  public RegionEnvironment createEnvironment(RegionCoprocessor instance, int priority, int seq,
+      Configuration conf) {
+    // If coprocessor exposes any services, register them.
+    for (Service service : instance.getServices()) {
+      region.registerService(service);
     }
     ConcurrentMap<String, Object> classData;
     // make sure only one thread can add maps
-    synchronized (sharedDataMap) {
+    synchronized (SHARED_DATA_MAP) {
       // as long as at least one RegionEnvironment holds on to its classData it will
       // remain in this map
-      classData = (ConcurrentMap<String, Object>)sharedDataMap.get(implClass.getName());
-      if (classData == null) {
-        classData = new ConcurrentHashMap<>();
-        sharedDataMap.put(implClass.getName(), classData);
-      }
+      classData =
+          SHARED_DATA_MAP.computeIfAbsent(instance.getClass().getName(),
+              k -> new ConcurrentHashMap<>());
     }
     return new RegionEnvironment(instance, priority, seq, conf, region,
         rsServices, classData);
   }
+
+  @Override
+  public RegionCoprocessor checkAndGetInstance(Class<?> implClass)
+      throws InstantiationException, IllegalAccessException {
+    if (RegionCoprocessor.class.isAssignableFrom(implClass)) {
+      return (RegionCoprocessor)implClass.newInstance();
+    } else if (CoprocessorService.class.isAssignableFrom(implClass)) {
+      // For backward compatibility with old CoprocessorService impl which don't extend
+      // RegionCoprocessor.
+      return new CoprocessorServiceBackwardCompatiblity.RegionCoprocessorService(
+          (CoprocessorService)implClass.newInstance());
+    } else {
+      LOG.error(implClass.getName() + " is not of type RegionCoprocessor. Check the "
+          + "configuration " + CoprocessorHost.REGION_COPROCESSOR_CONF_KEY);
+      return null;
+    }
+  }
+
+  private ObserverGetter<RegionCoprocessor, RegionObserver> regionObserverGetter =
+      RegionCoprocessor::getRegionObserver;
+
+  private ObserverGetter<RegionCoprocessor, EndpointObserver> endpointObserverGetter =
+      RegionCoprocessor::getEndpointObserver;
+
+  abstract class RegionObserverOperation extends ObserverOperationWithoutResult<RegionObserver> {
+    public RegionObserverOperation() {
+      super(regionObserverGetter);
+    }
+
+    public RegionObserverOperation(User user) {
+      super(regionObserverGetter, user);
+    }
+  }
+
+  abstract class BulkLoadObserverOperation extends
+      ObserverOperationWithoutResult<BulkLoadObserver> {
+    public BulkLoadObserverOperation(User user) {
+      super(RegionCoprocessor::getBulkLoadObserver, user);
+    }
+  }
+
+
+  //////////////////////////////////////////////////////////////////////////////////////////////////
+  // Observer operations
+  //////////////////////////////////////////////////////////////////////////////////////////////////
+
+  //////////////////////////////////////////////////////////////////////////////////////////////////
+  // Observer operations
+  //////////////////////////////////////////////////////////////////////////////////////////////////
 
   /**
    * Invoked before a region open.
@@ -420,25 +465,24 @@ public class RegionCoprocessorHost
    * @throws IOException Signals that an I/O exception has occurred.
    */
   public void preOpen() throws IOException {
-    execOperation(coprocessors.isEmpty() ? null : new RegionOperation() {
+    execOperation(coprocEnvironments.isEmpty() ? null : new RegionObserverOperation() {
       @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        oserver.preOpen(ctx);
+      public void call(RegionObserver observer) throws IOException {
+        observer.preOpen(this);
       }
     });
   }
+
 
   /**
    * Invoked after a region open
    */
   public void postOpen() {
     try {
-      execOperation(coprocessors.isEmpty() ? null : new RegionOperation() {
+      execOperation(coprocEnvironments.isEmpty() ? null : new RegionObserverOperation() {
         @Override
-        public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-            throws IOException {
-          oserver.postOpen(ctx);
+        public void call(RegionObserver observer) throws IOException {
+          observer.postOpen(this);
         }
       });
     } catch (IOException e) {
@@ -451,11 +495,10 @@ public class RegionCoprocessorHost
    */
   public void postLogReplay() {
     try {
-      execOperation(coprocessors.isEmpty() ? null : new RegionOperation() {
+      execOperation(coprocEnvironments.isEmpty() ? null : new RegionObserverOperation() {
         @Override
-        public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-            throws IOException {
-          oserver.postLogReplay(ctx);
+        public void call(RegionObserver observer) throws IOException {
+          observer.postLogReplay(this);
         }
       });
     } catch (IOException e) {
@@ -468,11 +511,10 @@ public class RegionCoprocessorHost
    * @param abortRequested true if the server is aborting
    */
   public void preClose(final boolean abortRequested) throws IOException {
-    execOperation(false, new RegionOperation() {
+    execOperation(false, new RegionObserverOperation() {
       @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        oserver.preClose(ctx, abortRequested);
+      public void call(RegionObserver observer) throws IOException {
+        observer.preClose(this, abortRequested);
       }
     });
   }
@@ -483,14 +525,15 @@ public class RegionCoprocessorHost
    */
   public void postClose(final boolean abortRequested) {
     try {
-      execOperation(false, new RegionOperation() {
+      execOperation(false, new RegionObserverOperation() {
         @Override
-        public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-            throws IOException {
-          oserver.postClose(ctx, abortRequested);
+        public void call(RegionObserver observer) throws IOException {
+          observer.postClose(this, abortRequested);
         }
-        public void postEnvCall(RegionEnvironment env) {
-          shutdown(env);
+
+        @Override
+        public void postEnvCall() {
+          shutdown(this.getEnvironment());
         }
       });
     } catch (IOException e) {
@@ -501,62 +544,57 @@ public class RegionCoprocessorHost
   /**
    * See
    * {@link RegionObserver#preCompactScannerOpen(ObserverContext, Store, List, ScanType, long,
-   *   InternalScanner, CompactionRequest, long)}
+   *   InternalScanner, CompactionLifeCycleTracker, long)}
    */
-  public InternalScanner preCompactScannerOpen(final Store store,
+  public InternalScanner preCompactScannerOpen(final HStore store,
       final List<StoreFileScanner> scanners, final ScanType scanType, final long earliestPutTs,
-      final CompactionRequest request, final User user, final long readPoint) throws IOException {
-    return execOperationWithResult(null,
-        coprocessors.isEmpty() ? null : new RegionOperationWithResult<InternalScanner>(user) {
-      @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        setResult(oserver.preCompactScannerOpen(ctx, store, scanners, scanType,
-          earliestPutTs, getResult(), request, readPoint));
-      }
-    });
+      final CompactionLifeCycleTracker tracker, final User user, final long readPoint)
+      throws IOException {
+    return execOperationWithResult(null, coprocEnvironments.isEmpty() ? null :
+        new ObserverOperationWithResult<RegionObserver, InternalScanner>(
+            regionObserverGetter, user) {
+          @Override
+          public InternalScanner call(RegionObserver observer) throws IOException {
+            return observer.preCompactScannerOpen(this, store, scanners, scanType,
+                earliestPutTs, getResult(), tracker, readPoint);
+          }
+        });
   }
 
   /**
-   * Called prior to selecting the {@link StoreFile}s for compaction from the list of currently
+   * Called prior to selecting the {@link HStoreFile}s for compaction from the list of currently
    * available candidates.
    * @param store The store where compaction is being requested
    * @param candidates The currently available store files
-   * @param request custom compaction request
+   * @param tracker used to track the life cycle of a compaction
    * @return If {@code true}, skip the normal selection process and use the current list
    * @throws IOException
    */
-  public boolean preCompactSelection(final Store store, final List<StoreFile> candidates,
-      final CompactionRequest request, final User user) throws IOException {
-    return execOperation(coprocessors.isEmpty() ? null : new RegionOperation(user) {
+  public boolean preCompactSelection(final HStore store, final List<HStoreFile> candidates,
+      final CompactionLifeCycleTracker tracker, final User user) throws IOException {
+    return execOperation(coprocEnvironments.isEmpty() ? null : new RegionObserverOperation(user) {
       @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        oserver.preCompactSelection(ctx, store, candidates, request);
+      public void call(RegionObserver observer) throws IOException {
+        observer.preCompactSelection(this, store, candidates, tracker);
       }
     });
   }
 
   /**
-   * Called after the {@link StoreFile}s to be compacted have been selected from the available
+   * Called after the {@link HStoreFile}s to be compacted have been selected from the available
    * candidates.
    * @param store The store where compaction is being requested
    * @param selected The store files selected to compact
-   * @param request custom compaction
+   * @param tracker used to track the life cycle of a compaction
    */
-  public void postCompactSelection(final Store store, final ImmutableList<StoreFile> selected,
-      final CompactionRequest request, final User user) {
-    try {
-      execOperation(coprocessors.isEmpty() ? null : new RegionOperation(user) {
-        @Override
-        public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-            throws IOException {
-          oserver.postCompactSelection(ctx, store, selected, request);
-        }
-      });
-    } catch (IOException e) {
-      LOG.warn(e);
-    }
+  public void postCompactSelection(final HStore store, final ImmutableList<HStoreFile> selected,
+      final CompactionLifeCycleTracker tracker, final User user) throws IOException {
+    execOperation(coprocEnvironments.isEmpty() ? null : new RegionObserverOperation(user) {
+      @Override
+      public void call(RegionObserver observer) throws IOException {
+        observer.postCompactSelection(this, store, selected, tracker);
+      }
+    });
   }
 
   /**
@@ -564,36 +602,35 @@ public class RegionCoprocessorHost
    * @param store the store being compacted
    * @param scanner the scanner used to read store data during compaction
    * @param scanType type of Scan
-   * @param request the compaction that will be executed
+   * @param tracker used to track the life cycle of a compaction
    * @throws IOException
    */
-  public InternalScanner preCompact(final Store store, final InternalScanner scanner,
-      final ScanType scanType, final CompactionRequest request, final User user)
+  public InternalScanner preCompact(final HStore store, final InternalScanner scanner,
+      final ScanType scanType, final CompactionLifeCycleTracker tracker, final User user)
       throws IOException {
-    return execOperationWithResult(false, scanner,
-        coprocessors.isEmpty() ? null : new RegionOperationWithResult<InternalScanner>(user) {
-      @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        setResult(oserver.preCompact(ctx, store, getResult(), scanType, request));
-      }
-    });
+    return execOperationWithResult(false, scanner, coprocEnvironments.isEmpty() ? null :
+        new ObserverOperationWithResult<RegionObserver, InternalScanner>(
+            regionObserverGetter, user) {
+          @Override
+          public InternalScanner call(RegionObserver observer) throws IOException {
+            return observer.preCompact(this, store, getResult(), scanType, tracker);
+          }
+        });
   }
 
   /**
    * Called after the store compaction has completed.
    * @param store the store being compacted
    * @param resultFile the new store file written during compaction
-   * @param request the compaction that is being executed
+   * @param tracker used to track the life cycle of a compaction
    * @throws IOException
    */
-  public void postCompact(final Store store, final StoreFile resultFile,
-      final CompactionRequest request, final User user) throws IOException {
-    execOperation(coprocessors.isEmpty() ? null : new RegionOperation(user) {
+  public void postCompact(final HStore store, final HStoreFile resultFile,
+      final CompactionLifeCycleTracker tracker, final User user) throws IOException {
+    execOperation(coprocEnvironments.isEmpty() ? null : new RegionObserverOperation(user) {
       @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        oserver.postCompact(ctx, store, resultFile, request);
+      public void call(RegionObserver observer) throws IOException {
+        observer.postCompact(this, store, resultFile, tracker);
       }
     });
   }
@@ -602,16 +639,15 @@ public class RegionCoprocessorHost
    * Invoked before a memstore flush
    * @throws IOException
    */
-  public InternalScanner preFlush(final Store store, final InternalScanner scanner)
+  public InternalScanner preFlush(HStore store, final InternalScanner scanner)
       throws IOException {
-    return execOperationWithResult(false, scanner,
-        coprocessors.isEmpty() ? null : new RegionOperationWithResult<InternalScanner>() {
-      @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        setResult(oserver.preFlush(ctx, store, getResult()));
-      }
-    });
+    return execOperationWithResult(false, scanner, coprocEnvironments.isEmpty() ? null :
+        new ObserverOperationWithResult<RegionObserver, InternalScanner>(regionObserverGetter) {
+          @Override
+          public InternalScanner call(RegionObserver observer) throws IOException {
+            return observer.preFlush(this, store, getResult());
+          }
+        });
   }
 
   /**
@@ -619,11 +655,10 @@ public class RegionCoprocessorHost
    * @throws IOException
    */
   public void preFlush() throws IOException {
-    execOperation(coprocessors.isEmpty() ? null : new RegionOperation() {
+    execOperation(coprocEnvironments.isEmpty() ? null : new RegionObserverOperation() {
       @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        oserver.preFlush(ctx);
+      public void call(RegionObserver observer) throws IOException {
+        observer.preFlush(this);
       }
     });
   }
@@ -632,16 +667,15 @@ public class RegionCoprocessorHost
    * See
    * {@link RegionObserver#preFlushScannerOpen(ObserverContext, Store, List, InternalScanner, long)}
    */
-  public InternalScanner preFlushScannerOpen(final Store store,
+  public InternalScanner preFlushScannerOpen(final HStore store,
       final List<KeyValueScanner> scanners, final long readPoint) throws IOException {
-    return execOperationWithResult(null,
-        coprocessors.isEmpty() ? null : new RegionOperationWithResult<InternalScanner>() {
-      @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        setResult(oserver.preFlushScannerOpen(ctx, store, scanners, getResult(), readPoint));
-      }
-    });
+    return execOperationWithResult(null, coprocEnvironments.isEmpty() ? null :
+        new ObserverOperationWithResult<RegionObserver, InternalScanner>(regionObserverGetter) {
+          @Override
+          public InternalScanner call(RegionObserver observer) throws IOException {
+            return observer.preFlushScannerOpen(this, store, scanners, getResult(), readPoint);
+          }
+        });
   }
 
   /**
@@ -649,11 +683,10 @@ public class RegionCoprocessorHost
    * @throws IOException
    */
   public void postFlush() throws IOException {
-    execOperation(coprocessors.isEmpty() ? null : new RegionOperation() {
+    execOperation(coprocEnvironments.isEmpty() ? null : new RegionObserverOperation() {
       @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        oserver.postFlush(ctx);
+      public void call(RegionObserver observer) throws IOException {
+        observer.postFlush(this);
       }
     });
   }
@@ -662,146 +695,16 @@ public class RegionCoprocessorHost
    * Invoked after a memstore flush
    * @throws IOException
    */
-  public void postFlush(final Store store, final StoreFile storeFile) throws IOException {
-    execOperation(coprocessors.isEmpty() ? null : new RegionOperation() {
+  public void postFlush(final HStore store, final HStoreFile storeFile) throws IOException {
+    execOperation(coprocEnvironments.isEmpty() ? null : new RegionObserverOperation() {
       @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        oserver.postFlush(ctx, store, storeFile);
-      }
-    });
-  }
-
-  /**
-   * Invoked just before a split
-   * @throws IOException
-   */
-  @Deprecated
-  public void preSplit(final User user) throws IOException {
-    execOperation(coprocessors.isEmpty() ? null : new RegionOperation(user) {
-      @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        oserver.preSplit(ctx);
-      }
-    });
-  }
-
-  /**
-   * Invoked just before a split
-   * @throws IOException
-   *
-   * Note: the logic moves to Master; it is unused in RS
-   */
-  @Deprecated
-  public void preSplit(final byte[] splitRow, final User user) throws IOException {
-    execOperation(coprocessors.isEmpty() ? null : new RegionOperation(user) {
-      @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        oserver.preSplit(ctx, splitRow);
-      }
-    });
-  }
-
-  /**
-   * Invoked just after a split
-   * @param l the new left-hand daughter region
-   * @param r the new right-hand daughter region
-   * @throws IOException
-   *
-   * Note: the logic moves to Master; it is unused in RS
-   */
-  @Deprecated
-  public void postSplit(final Region l, final Region r, final User user) throws IOException {
-    execOperation(coprocessors.isEmpty() ? null : new RegionOperation(user) {
-      @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        oserver.postSplit(ctx, l, r);
-      }
-    });
-  }
-
-  /**
-  * Note: the logic moves to Master; it is unused in RS
-  */
- @Deprecated
-  public boolean preSplitBeforePONR(final byte[] splitKey,
-      final List<Mutation> metaEntries, final User user) throws IOException {
-    return execOperation(coprocessors.isEmpty() ? null : new RegionOperation(user) {
-      @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        oserver.preSplitBeforePONR(ctx, splitKey, metaEntries);
-      }
-    });
-  }
-
-  /**
-  * Note: the logic moves to Master; it is unused in RS
-  */
-  @Deprecated
-  public void preSplitAfterPONR(final User user) throws IOException {
-    execOperation(coprocessors.isEmpty() ? null : new RegionOperation(user) {
-      @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        oserver.preSplitAfterPONR(ctx);
-      }
-    });
-  }
-
-  /**
-   * Invoked just before the rollback of a failed split is started
-   * @throws IOException
-   *
-  * Note: the logic moves to Master; it is unused in RS
-  */
-  @Deprecated
-  public void preRollBackSplit(final User user) throws IOException {
-    execOperation(coprocessors.isEmpty() ? null : new RegionOperation(user) {
-      @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        oserver.preRollBackSplit(ctx);
-      }
-    });
-  }
-
-  /**
-   * Invoked just after the rollback of a failed split is done
-   * @throws IOException
-   *
-  * Note: the logic moves to Master; it is unused in RS
-  */
-  @Deprecated
-  public void postRollBackSplit(final User user) throws IOException {
-    execOperation(coprocessors.isEmpty() ? null : new RegionOperation(user) {
-      @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        oserver.postRollBackSplit(ctx);
-      }
-    });
-  }
-
-  /**
-   * Invoked after a split is completed irrespective of a failure or success.
-   * @throws IOException
-   */
-  public void postCompleteSplit() throws IOException {
-    execOperation(coprocessors.isEmpty() ? null : new RegionOperation() {
-      @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        oserver.postCompleteSplit(ctx);
+      public void call(RegionObserver observer) throws IOException {
+        observer.postFlush(this, store, storeFile);
       }
     });
   }
 
   // RegionObserver support
-
   /**
    * @param get the Get request
    * @return true if default processing should be bypassed
@@ -809,11 +712,10 @@ public class RegionCoprocessorHost
    */
   public boolean preGet(final Get get, final List<Cell> results)
       throws IOException {
-    return execOperation(coprocessors.isEmpty() ? null : new RegionOperation() {
+    return execOperation(coprocEnvironments.isEmpty() ? null : new RegionObserverOperation() {
       @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        oserver.preGetOp(ctx, get, results);
+      public void call(RegionObserver observer) throws IOException {
+        observer.preGetOp(this, get, results);
       }
     });
   }
@@ -825,11 +727,10 @@ public class RegionCoprocessorHost
    */
   public void postGet(final Get get, final List<Cell> results)
       throws IOException {
-    execOperation(coprocessors.isEmpty() ? null : new RegionOperation() {
+    execOperation(coprocEnvironments.isEmpty() ? null : new RegionObserverOperation() {
       @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        oserver.postGetOp(ctx, get, results);
+      public void call(RegionObserver observer) throws IOException {
+        observer.postGetOp(this, get, results);
       }
     });
   }
@@ -841,14 +742,13 @@ public class RegionCoprocessorHost
    * @exception IOException Exception
    */
   public Boolean preExists(final Get get) throws IOException {
-    return execOperationWithResult(true, false,
-        coprocessors.isEmpty() ? null : new RegionOperationWithResult<Boolean>() {
-      @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        setResult(oserver.preExists(ctx, get, getResult()));
-      }
-    });
+    return execOperationWithResult(true, false, coprocEnvironments.isEmpty() ? null :
+        new ObserverOperationWithResult<RegionObserver, Boolean>(regionObserverGetter) {
+          @Override
+          public Boolean call(RegionObserver observer) throws IOException {
+            return observer.preExists(this, get, getResult());
+          }
+        });
   }
 
   /**
@@ -859,14 +759,13 @@ public class RegionCoprocessorHost
    */
   public boolean postExists(final Get get, boolean exists)
       throws IOException {
-    return execOperationWithResult(exists,
-        coprocessors.isEmpty() ? null : new RegionOperationWithResult<Boolean>() {
-      @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        setResult(oserver.postExists(ctx, get, getResult()));
-      }
-    });
+    return execOperationWithResult(exists, coprocEnvironments.isEmpty() ? null :
+        new ObserverOperationWithResult<RegionObserver, Boolean>(regionObserverGetter) {
+          @Override
+          public Boolean call(RegionObserver observer) throws IOException {
+            return observer.postExists(this, get, getResult());
+          }
+        });
   }
 
   /**
@@ -878,11 +777,10 @@ public class RegionCoprocessorHost
    */
   public boolean prePut(final Put put, final WALEdit edit, final Durability durability)
       throws IOException {
-    return execOperation(coprocessors.isEmpty() ? null : new RegionOperation() {
+    return execOperation(coprocEnvironments.isEmpty() ? null : new RegionObserverOperation() {
       @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        oserver.prePut(ctx, put, edit, durability);
+      public void call(RegionObserver observer) throws IOException {
+        observer.prePut(this, put, edit, durability);
       }
     });
   }
@@ -899,11 +797,10 @@ public class RegionCoprocessorHost
    */
   public boolean prePrepareTimeStampForDeleteVersion(final Mutation mutation,
       final Cell kv, final byte[] byteNow, final Get get) throws IOException {
-    return execOperation(coprocessors.isEmpty() ? null : new RegionOperation() {
+    return execOperation(coprocEnvironments.isEmpty() ? null : new RegionObserverOperation() {
       @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        oserver.prePrepareTimeStampForDeleteVersion(ctx, mutation, kv, byteNow, get);
+      public void call(RegionObserver observer) throws IOException {
+        observer.prePrepareTimeStampForDeleteVersion(this, mutation, kv, byteNow, get);
       }
     });
   }
@@ -916,11 +813,10 @@ public class RegionCoprocessorHost
    */
   public void postPut(final Put put, final WALEdit edit, final Durability durability)
       throws IOException {
-    execOperation(coprocessors.isEmpty() ? null : new RegionOperation() {
+    execOperation(coprocEnvironments.isEmpty() ? null : new RegionObserverOperation() {
       @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        oserver.postPut(ctx, put, edit, durability);
+      public void call(RegionObserver observer) throws IOException {
+        observer.postPut(this, put, edit, durability);
       }
     });
   }
@@ -934,11 +830,10 @@ public class RegionCoprocessorHost
    */
   public boolean preDelete(final Delete delete, final WALEdit edit, final Durability durability)
       throws IOException {
-    return execOperation(coprocessors.isEmpty() ? null : new RegionOperation() {
+    return execOperation(coprocEnvironments.isEmpty() ? null : new RegionObserverOperation() {
       @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        oserver.preDelete(ctx, delete, edit, durability);
+      public void call(RegionObserver observer) throws IOException {
+        observer.preDelete(this, delete, edit, durability);
       }
     });
   }
@@ -951,11 +846,10 @@ public class RegionCoprocessorHost
    */
   public void postDelete(final Delete delete, final WALEdit edit, final Durability durability)
       throws IOException {
-    execOperation(coprocessors.isEmpty() ? null : new RegionOperation() {
+    execOperation(coprocEnvironments.isEmpty() ? null : new RegionObserverOperation() {
       @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        oserver.postDelete(ctx, delete, edit, durability);
+      public void call(RegionObserver observer) throws IOException {
+        observer.postDelete(this, delete, edit, durability);
       }
     });
   }
@@ -967,11 +861,10 @@ public class RegionCoprocessorHost
    */
   public boolean preBatchMutate(
       final MiniBatchOperationInProgress<Mutation> miniBatchOp) throws IOException {
-    return execOperation(coprocessors.isEmpty() ? null : new RegionOperation() {
+    return execOperation(coprocEnvironments.isEmpty() ? null : new RegionObserverOperation() {
       @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        oserver.preBatchMutate(ctx, miniBatchOp);
+      public void call(RegionObserver observer) throws IOException {
+        observer.preBatchMutate(this, miniBatchOp);
       }
     });
   }
@@ -982,11 +875,10 @@ public class RegionCoprocessorHost
    */
   public void postBatchMutate(
       final MiniBatchOperationInProgress<Mutation> miniBatchOp) throws IOException {
-    execOperation(coprocessors.isEmpty() ? null : new RegionOperation() {
+    execOperation(coprocEnvironments.isEmpty() ? null : new RegionObserverOperation() {
       @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        oserver.postBatchMutate(ctx, miniBatchOp);
+      public void call(RegionObserver observer) throws IOException {
+        observer.postBatchMutate(this, miniBatchOp);
       }
     });
   }
@@ -994,11 +886,10 @@ public class RegionCoprocessorHost
   public void postBatchMutateIndispensably(
       final MiniBatchOperationInProgress<Mutation> miniBatchOp, final boolean success)
       throws IOException {
-    execOperation(coprocessors.isEmpty() ? null : new RegionOperation() {
+    execOperation(coprocEnvironments.isEmpty() ? null : new RegionObserverOperation() {
       @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        oserver.postBatchMutateIndispensably(ctx, miniBatchOp, success);
+      public void call(RegionObserver observer) throws IOException {
+        observer.postBatchMutateIndispensably(this, miniBatchOp, success);
       }
     });
   }
@@ -1007,7 +898,7 @@ public class RegionCoprocessorHost
    * @param row row to check
    * @param family column family
    * @param qualifier column qualifier
-   * @param compareOp the comparison operation
+   * @param op the comparison operation
    * @param comparator the comparator
    * @param put data to put if check succeeds
    * @return true or false to return to client if default processing should
@@ -1015,74 +906,71 @@ public class RegionCoprocessorHost
    * @throws IOException e
    */
   public Boolean preCheckAndPut(final byte [] row, final byte [] family,
-      final byte [] qualifier, final CompareOp compareOp,
+      final byte [] qualifier, final CompareOperator op,
       final ByteArrayComparable comparator, final Put put)
       throws IOException {
-    return execOperationWithResult(true, false,
-        coprocessors.isEmpty() ? null : new RegionOperationWithResult<Boolean>() {
-      @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        setResult(oserver.preCheckAndPut(ctx, row, family, qualifier,
-          compareOp, comparator, put, getResult()));
-      }
-    });
+    return execOperationWithResult(true, false, coprocEnvironments.isEmpty() ? null :
+        new ObserverOperationWithResult<RegionObserver, Boolean>(regionObserverGetter) {
+          @Override
+          public Boolean call(RegionObserver observer) throws IOException {
+            return observer.preCheckAndPut(this, row, family, qualifier,
+                op, comparator, put, getResult());
+          }
+        });
   }
 
   /**
    * @param row row to check
    * @param family column family
    * @param qualifier column qualifier
-   * @param compareOp the comparison operation
+   * @param op the comparison operation
    * @param comparator the comparator
    * @param put data to put if check succeeds
    * @return true or false to return to client if default processing should
    * be bypassed, or null otherwise
    * @throws IOException e
    */
-  public Boolean preCheckAndPutAfterRowLock(final byte[] row, final byte[] family,
-      final byte[] qualifier, final CompareOp compareOp, final ByteArrayComparable comparator,
-      final Put put) throws IOException {
-    return execOperationWithResult(true, false,
-        coprocessors.isEmpty() ? null : new RegionOperationWithResult<Boolean>() {
-      @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        setResult(oserver.preCheckAndPutAfterRowLock(ctx, row, family, qualifier,
-          compareOp, comparator, put, getResult()));
-      }
-    });
+  public Boolean preCheckAndPutAfterRowLock(
+      final byte[] row, final byte[] family, final byte[] qualifier, final CompareOperator op,
+      final ByteArrayComparable comparator, final Put put) throws IOException {
+    return execOperationWithResult(true, false, coprocEnvironments.isEmpty() ? null :
+        new ObserverOperationWithResult<RegionObserver, Boolean>(regionObserverGetter) {
+          @Override
+          public Boolean call(RegionObserver observer) throws IOException {
+            return observer.preCheckAndPutAfterRowLock(this, row, family, qualifier,
+                op, comparator, put, getResult());
+          }
+        });
   }
 
   /**
    * @param row row to check
    * @param family column family
    * @param qualifier column qualifier
-   * @param compareOp the comparison operation
+   * @param op the comparison operation
    * @param comparator the comparator
    * @param put data to put if check succeeds
    * @throws IOException e
    */
   public boolean postCheckAndPut(final byte [] row, final byte [] family,
-      final byte [] qualifier, final CompareOp compareOp,
+      final byte [] qualifier, final CompareOperator op,
       final ByteArrayComparable comparator, final Put put,
       boolean result) throws IOException {
-    return execOperationWithResult(result,
-        coprocessors.isEmpty() ? null : new RegionOperationWithResult<Boolean>() {
-      @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        setResult(oserver.postCheckAndPut(ctx, row, family, qualifier,
-          compareOp, comparator, put, getResult()));
-      }
-    });
+    return execOperationWithResult(result, coprocEnvironments.isEmpty() ? null :
+        new ObserverOperationWithResult<RegionObserver, Boolean>(regionObserverGetter) {
+          @Override
+          public Boolean call(RegionObserver observer) throws IOException {
+            return observer.postCheckAndPut(this, row, family, qualifier,
+                op, comparator, put, getResult());
+          }
+        });
   }
 
   /**
    * @param row row to check
    * @param family column family
    * @param qualifier column qualifier
-   * @param compareOp the comparison operation
+   * @param op the comparison operation
    * @param comparator the comparator
    * @param delete delete to commit if check succeeds
    * @return true or false to return to client if default processing should
@@ -1090,25 +978,24 @@ public class RegionCoprocessorHost
    * @throws IOException e
    */
   public Boolean preCheckAndDelete(final byte [] row, final byte [] family,
-      final byte [] qualifier, final CompareOp compareOp,
+      final byte [] qualifier, final CompareOperator op,
       final ByteArrayComparable comparator, final Delete delete)
       throws IOException {
-    return execOperationWithResult(true, false,
-        coprocessors.isEmpty() ? null : new RegionOperationWithResult<Boolean>() {
-      @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        setResult(oserver.preCheckAndDelete(ctx, row, family,
-            qualifier, compareOp, comparator, delete, getResult()));
-      }
-    });
+    return execOperationWithResult(true, false, coprocEnvironments.isEmpty() ? null :
+        new ObserverOperationWithResult<RegionObserver, Boolean>(regionObserverGetter) {
+          @Override
+          public Boolean call(RegionObserver observer) throws IOException {
+            return observer.preCheckAndDelete(this, row, family,
+                qualifier, op, comparator, delete, getResult());
+          }
+        });
   }
 
   /**
    * @param row row to check
    * @param family column family
    * @param qualifier column qualifier
-   * @param compareOp the comparison operation
+   * @param op the comparison operation
    * @param comparator the comparator
    * @param delete delete to commit if check succeeds
    * @return true or false to return to client if default processing should
@@ -1116,41 +1003,39 @@ public class RegionCoprocessorHost
    * @throws IOException e
    */
   public Boolean preCheckAndDeleteAfterRowLock(final byte[] row, final byte[] family,
-      final byte[] qualifier, final CompareOp compareOp, final ByteArrayComparable comparator,
+      final byte[] qualifier, final CompareOperator op, final ByteArrayComparable comparator,
       final Delete delete) throws IOException {
-    return execOperationWithResult(true, false,
-        coprocessors.isEmpty() ? null : new RegionOperationWithResult<Boolean>() {
-      @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        setResult(oserver.preCheckAndDeleteAfterRowLock(ctx, row,
-              family, qualifier, compareOp, comparator, delete, getResult()));
-      }
-    });
+    return execOperationWithResult(true, false, coprocEnvironments.isEmpty() ? null :
+        new ObserverOperationWithResult<RegionObserver, Boolean>(regionObserverGetter) {
+          @Override
+          public Boolean call(RegionObserver observer) throws IOException {
+            return observer.preCheckAndDeleteAfterRowLock(this, row,
+                family, qualifier, op, comparator, delete, getResult());
+          }
+        });
   }
 
   /**
    * @param row row to check
    * @param family column family
    * @param qualifier column qualifier
-   * @param compareOp the comparison operation
+   * @param op the comparison operation
    * @param comparator the comparator
    * @param delete delete to commit if check succeeds
    * @throws IOException e
    */
   public boolean postCheckAndDelete(final byte [] row, final byte [] family,
-      final byte [] qualifier, final CompareOp compareOp,
+      final byte [] qualifier, final CompareOperator op,
       final ByteArrayComparable comparator, final Delete delete,
       boolean result) throws IOException {
-    return execOperationWithResult(result,
-        coprocessors.isEmpty() ? null : new RegionOperationWithResult<Boolean>() {
-      @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        setResult(oserver.postCheckAndDelete(ctx, row, family,
-            qualifier, compareOp, comparator, delete, getResult()));
-      }
-    });
+    return execOperationWithResult(result, coprocEnvironments.isEmpty() ? null :
+        new ObserverOperationWithResult<RegionObserver, Boolean>(regionObserverGetter) {
+          @Override
+          public Boolean call(RegionObserver observer) throws IOException {
+            return observer.postCheckAndDelete(this, row, family,
+                qualifier, op, comparator, delete, getResult());
+          }
+        });
   }
 
   /**
@@ -1160,14 +1045,13 @@ public class RegionCoprocessorHost
    * @throws IOException if an error occurred on the coprocessor
    */
   public Result preAppend(final Append append) throws IOException {
-    return execOperationWithResult(true, null,
-        coprocessors.isEmpty() ? null : new RegionOperationWithResult<Result>() {
-      @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        setResult(oserver.preAppend(ctx, append));
-      }
-    });
+    return execOperationWithResult(true, null, coprocEnvironments.isEmpty() ? null :
+        new ObserverOperationWithResult<RegionObserver, Result>(regionObserverGetter) {
+          @Override
+          public Result call(RegionObserver observer) throws IOException {
+            return observer.preAppend(this, append);
+          }
+        });
   }
 
   /**
@@ -1177,14 +1061,13 @@ public class RegionCoprocessorHost
    * @throws IOException if an error occurred on the coprocessor
    */
   public Result preAppendAfterRowLock(final Append append) throws IOException {
-    return execOperationWithResult(true, null,
-        coprocessors.isEmpty() ? null : new RegionOperationWithResult<Result>() {
-      @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        setResult(oserver.preAppendAfterRowLock(ctx, append));
-      }
-    });
+    return execOperationWithResult(true, null, coprocEnvironments.isEmpty() ? null :
+        new ObserverOperationWithResult<RegionObserver, Result>(regionObserverGetter) {
+          @Override
+          public Result call(RegionObserver observer) throws IOException {
+            return observer.preAppendAfterRowLock(this, append);
+          }
+        });
   }
 
   /**
@@ -1194,14 +1077,13 @@ public class RegionCoprocessorHost
    * @throws IOException if an error occurred on the coprocessor
    */
   public Result preIncrement(final Increment increment) throws IOException {
-    return execOperationWithResult(true, null,
-        coprocessors.isEmpty() ? null : new RegionOperationWithResult<Result>() {
-      @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        setResult(oserver.preIncrement(ctx, increment));
-      }
-    });
+    return execOperationWithResult(true, null, coprocEnvironments.isEmpty() ? null :
+        new ObserverOperationWithResult<RegionObserver, Result>(regionObserverGetter) {
+          @Override
+          public Result call(RegionObserver observer) throws IOException {
+            return observer.preIncrement(this, increment);
+          }
+        });
   }
 
   /**
@@ -1211,14 +1093,13 @@ public class RegionCoprocessorHost
    * @throws IOException if an error occurred on the coprocessor
    */
   public Result preIncrementAfterRowLock(final Increment increment) throws IOException {
-    return execOperationWithResult(true, null,
-        coprocessors.isEmpty() ? null : new RegionOperationWithResult<Result>() {
-      @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        setResult(oserver.preIncrementAfterRowLock(ctx, increment));
-      }
-    });
+    return execOperationWithResult(true, null, coprocEnvironments.isEmpty() ? null :
+        new ObserverOperationWithResult<RegionObserver, Result>(regionObserverGetter) {
+          @Override
+          public Result call(RegionObserver observer) throws IOException {
+            return observer.preIncrementAfterRowLock(this, increment);
+          }
+        });
   }
 
   /**
@@ -1227,14 +1108,13 @@ public class RegionCoprocessorHost
    * @throws IOException if an error occurred on the coprocessor
    */
   public Result postAppend(final Append append, final Result result) throws IOException {
-    return execOperationWithResult(result,
-        coprocessors.isEmpty() ? null : new RegionOperationWithResult<Result>() {
-      @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        setResult(oserver.postAppend(ctx, append, result));
-      }
-    });
+    return execOperationWithResult(result, coprocEnvironments.isEmpty() ? null :
+        new ObserverOperationWithResult<RegionObserver, Result>(regionObserverGetter) {
+          @Override
+          public Result call(RegionObserver observer) throws IOException {
+            return observer.postAppend(this, append, result);
+          }
+        });
   }
 
   /**
@@ -1243,14 +1123,13 @@ public class RegionCoprocessorHost
    * @throws IOException if an error occurred on the coprocessor
    */
   public Result postIncrement(final Increment increment, Result result) throws IOException {
-    return execOperationWithResult(result,
-        coprocessors.isEmpty() ? null : new RegionOperationWithResult<Result>() {
-      @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        setResult(oserver.postIncrement(ctx, increment, getResult()));
-      }
-    });
+    return execOperationWithResult(result, coprocEnvironments.isEmpty() ? null :
+        new ObserverOperationWithResult<RegionObserver, Result>(regionObserverGetter) {
+          @Override
+          public Result call(RegionObserver observer) throws IOException {
+            return observer.postIncrement(this, increment, getResult());
+          }
+        });
   }
 
   /**
@@ -1260,31 +1139,28 @@ public class RegionCoprocessorHost
    * @exception IOException Exception
    */
   public RegionScanner preScannerOpen(final Scan scan) throws IOException {
-    return execOperationWithResult(true, null,
-        coprocessors.isEmpty() ? null : new RegionOperationWithResult<RegionScanner>() {
-      @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        setResult(oserver.preScannerOpen(ctx, scan, getResult()));
-      }
-    });
+    return execOperationWithResult(true, null, coprocEnvironments.isEmpty() ? null :
+        new ObserverOperationWithResult<RegionObserver, RegionScanner>(regionObserverGetter) {
+          @Override
+          public RegionScanner call(RegionObserver observer) throws IOException {
+            return observer.preScannerOpen(this, scan, getResult());
+          }
+        });
   }
 
   /**
    * See
-   * {@link RegionObserver#preStoreScannerOpen(ObserverContext,
-   *    Store, Scan, NavigableSet, KeyValueScanner)}
+   * {@link RegionObserver#preStoreScannerOpen(ObserverContext, Store, Scan, NavigableSet, KeyValueScanner, long)}
    */
-  public KeyValueScanner preStoreScannerOpen(final Store store, final Scan scan,
+  public KeyValueScanner preStoreScannerOpen(final HStore store, final Scan scan,
       final NavigableSet<byte[]> targetCols, final long readPt) throws IOException {
-    return execOperationWithResult(null,
-        coprocessors.isEmpty() ? null : new RegionOperationWithResult<KeyValueScanner>() {
-      @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        setResult(oserver.preStoreScannerOpen(ctx, store, scan, targetCols, getResult(), readPt));
-      }
-    });
+    return execOperationWithResult(null, coprocEnvironments.isEmpty() ? null :
+        new ObserverOperationWithResult<RegionObserver, KeyValueScanner>(regionObserverGetter) {
+          @Override
+          public KeyValueScanner call(RegionObserver observer) throws IOException {
+            return observer.preStoreScannerOpen(this, store, scan, targetCols, getResult(), readPt);
+          }
+        });
   }
 
   /**
@@ -1294,14 +1170,13 @@ public class RegionCoprocessorHost
    * @exception IOException Exception
    */
   public RegionScanner postScannerOpen(final Scan scan, RegionScanner s) throws IOException {
-    return execOperationWithResult(s,
-        coprocessors.isEmpty() ? null : new RegionOperationWithResult<RegionScanner>() {
-      @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        setResult(oserver.postScannerOpen(ctx, scan, getResult()));
-      }
-    });
+    return execOperationWithResult(s, coprocEnvironments.isEmpty() ? null :
+        new ObserverOperationWithResult<RegionObserver, RegionScanner>(regionObserverGetter) {
+          @Override
+          public RegionScanner call(RegionObserver observer) throws IOException {
+            return observer.postScannerOpen(this, scan, getResult());
+          }
+        });
   }
 
   /**
@@ -1314,14 +1189,13 @@ public class RegionCoprocessorHost
    */
   public Boolean preScannerNext(final InternalScanner s,
       final List<Result> results, final int limit) throws IOException {
-    return execOperationWithResult(true, false,
-        coprocessors.isEmpty() ? null : new RegionOperationWithResult<Boolean>() {
-      @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        setResult(oserver.preScannerNext(ctx, s, results, limit, getResult()));
-      }
-    });
+    return execOperationWithResult(true, false, coprocEnvironments.isEmpty() ? null :
+        new ObserverOperationWithResult<RegionObserver, Boolean>(regionObserverGetter) {
+          @Override
+          public Boolean call(RegionObserver observer) throws IOException {
+            return observer.preScannerNext(this, s, results, limit, getResult());
+          }
+        });
   }
 
   /**
@@ -1335,14 +1209,13 @@ public class RegionCoprocessorHost
   public boolean postScannerNext(final InternalScanner s,
       final List<Result> results, final int limit, boolean hasMore)
       throws IOException {
-    return execOperationWithResult(hasMore,
-        coprocessors.isEmpty() ? null : new RegionOperationWithResult<Boolean>() {
-      @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        setResult(oserver.postScannerNext(ctx, s, results, limit, getResult()));
-      }
-    });
+    return execOperationWithResult(hasMore, coprocEnvironments.isEmpty() ? null :
+        new ObserverOperationWithResult<RegionObserver, Boolean>(regionObserverGetter) {
+          @Override
+          public Boolean call(RegionObserver observer) throws IOException {
+            return observer.postScannerNext(this, s, results, limit, getResult());
+          }
+        });
   }
 
   /**
@@ -1357,14 +1230,13 @@ public class RegionCoprocessorHost
       throws IOException {
     // short circuit for performance
     if (!hasCustomPostScannerFilterRow) return true;
-    return execOperationWithResult(true,
-        coprocessors.isEmpty() ? null : new RegionOperationWithResult<Boolean>() {
-      @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        setResult(oserver.postScannerFilterRow(ctx, s, curRowCell, getResult()));
-      }
-    });
+    return execOperationWithResult(true, coprocEnvironments.isEmpty() ? null :
+        new ObserverOperationWithResult<RegionObserver, Boolean>(regionObserverGetter) {
+          @Override
+          public Boolean call(RegionObserver observer) throws IOException {
+            return observer.postScannerFilterRow(this, s, curRowCell, getResult());
+          }
+        });
   }
 
   /**
@@ -1373,11 +1245,10 @@ public class RegionCoprocessorHost
    * @exception IOException Exception
    */
   public boolean preScannerClose(final InternalScanner s) throws IOException {
-    return execOperation(coprocessors.isEmpty() ? null : new RegionOperation() {
+    return execOperation(coprocEnvironments.isEmpty() ? null : new RegionObserverOperation() {
       @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        oserver.preScannerClose(ctx, s);
+      public void call(RegionObserver observer) throws IOException {
+        observer.preScannerClose(this, s);
       }
     });
   }
@@ -1386,11 +1257,10 @@ public class RegionCoprocessorHost
    * @exception IOException Exception
    */
   public void postScannerClose(final InternalScanner s) throws IOException {
-    execOperation(coprocessors.isEmpty() ? null : new RegionOperation() {
+    execOperation(coprocEnvironments.isEmpty() ? null : new RegionObserverOperation() {
       @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        oserver.postScannerClose(ctx, s);
+      public void call(RegionObserver observer) throws IOException {
+        observer.postScannerClose(this, s);
       }
     });
   }
@@ -1400,12 +1270,11 @@ public class RegionCoprocessorHost
    * @param edits the file of recovered edits
    * @throws IOException Exception
    */
-  public void preReplayWALs(final HRegionInfo info, final Path edits) throws IOException {
-    execOperation(coprocessors.isEmpty() ? null : new RegionOperation() {
+  public void preReplayWALs(final RegionInfo info, final Path edits) throws IOException {
+    execOperation(coprocEnvironments.isEmpty() ? null : new RegionObserverOperation() {
       @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-        throws IOException {
-        oserver.preReplayWALs(ctx, info, edits);
+      public void call(RegionObserver observer) throws IOException {
+        observer.preReplayWALs(this, info, edits);
       }
     });
   }
@@ -1415,12 +1284,11 @@ public class RegionCoprocessorHost
    * @param edits the file of recovered edits
    * @throws IOException Exception
    */
-  public void postReplayWALs(final HRegionInfo info, final Path edits) throws IOException {
-    execOperation(coprocessors.isEmpty() ? null : new RegionOperation() {
+  public void postReplayWALs(final RegionInfo info, final Path edits) throws IOException {
+    execOperation(coprocEnvironments.isEmpty() ? null : new RegionObserverOperation() {
       @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-        throws IOException {
-        oserver.postReplayWALs(ctx, info, edits);
+      public void call(RegionObserver observer) throws IOException {
+        observer.postReplayWALs(this, info, edits);
       }
     });
   }
@@ -1432,13 +1300,12 @@ public class RegionCoprocessorHost
    * @return true if default behavior should be bypassed, false otherwise
    * @throws IOException
    */
-  public boolean preWALRestore(final HRegionInfo info, final WALKey logKey,
+  public boolean preWALRestore(final RegionInfo info, final WALKey logKey,
       final WALEdit logEdit) throws IOException {
-    return execOperation(coprocessors.isEmpty() ? null : new RegionOperation() {
+    return execOperation(coprocEnvironments.isEmpty() ? null : new RegionObserverOperation() {
       @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        oserver.preWALRestore(ctx, info, logKey, logEdit);
+      public void call(RegionObserver observer) throws IOException {
+        observer.preWALRestore(this, info, logKey, logEdit);
       }
     });
   }
@@ -1449,13 +1316,12 @@ public class RegionCoprocessorHost
    * @param logEdit
    * @throws IOException
    */
-  public void postWALRestore(final HRegionInfo info, final WALKey logKey, final WALEdit logEdit)
+  public void postWALRestore(final RegionInfo info, final WALKey logKey, final WALEdit logEdit)
       throws IOException {
-    execOperation(coprocessors.isEmpty() ? null : new RegionOperation() {
+    execOperation(coprocEnvironments.isEmpty() ? null : new RegionObserverOperation() {
       @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        oserver.postWALRestore(ctx, info, logKey, logEdit);
+      public void call(RegionObserver observer) throws IOException {
+        observer.postWALRestore(this, info, logKey, logEdit);
       }
     });
   }
@@ -1466,31 +1332,28 @@ public class RegionCoprocessorHost
    * @throws IOException
    */
   public boolean preBulkLoadHFile(final List<Pair<byte[], String>> familyPaths) throws IOException {
-    return execOperation(coprocessors.isEmpty() ? null : new RegionOperation() {
+    return execOperation(coprocEnvironments.isEmpty() ? null : new RegionObserverOperation() {
       @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        oserver.preBulkLoadHFile(ctx, familyPaths);
+      public void call(RegionObserver observer) throws IOException {
+        observer.preBulkLoadHFile(this, familyPaths);
       }
     });
   }
 
   public boolean preCommitStoreFile(final byte[] family, final List<Pair<Path, Path>> pairs)
       throws IOException {
-    return execOperation(coprocessors.isEmpty() ? null : new RegionOperation() {
+    return execOperation(coprocEnvironments.isEmpty() ? null : new RegionObserverOperation() {
       @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        oserver.preCommitStoreFile(ctx, family, pairs);
+      public void call(RegionObserver observer) throws IOException {
+        observer.preCommitStoreFile(this, family, pairs);
       }
     });
   }
   public void postCommitStoreFile(final byte[] family, Path srcPath, Path dstPath) throws IOException {
-    execOperation(coprocessors.isEmpty() ? null : new RegionOperation() {
+    execOperation(coprocEnvironments.isEmpty() ? null : new RegionObserverOperation() {
       @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        oserver.postCommitStoreFile(ctx, family, srcPath, dstPath);
+      public void call(RegionObserver observer) throws IOException {
+        observer.postCommitStoreFile(this, family, srcPath, dstPath);
       }
     });
   }
@@ -1504,32 +1367,29 @@ public class RegionCoprocessorHost
    */
   public boolean postBulkLoadHFile(final List<Pair<byte[], String>> familyPaths,
       Map<byte[], List<Path>> map, boolean hasLoaded) throws IOException {
-    return execOperationWithResult(hasLoaded,
-        coprocessors.isEmpty() ? null : new RegionOperationWithResult<Boolean>() {
-      @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        setResult(oserver.postBulkLoadHFile(ctx, familyPaths, map, getResult()));
-      }
-    });
+    return execOperationWithResult(hasLoaded, coprocEnvironments.isEmpty() ? null :
+        new ObserverOperationWithResult<RegionObserver, Boolean>(regionObserverGetter) {
+          @Override
+          public Boolean call(RegionObserver observer) throws IOException {
+            return observer.postBulkLoadHFile(this, familyPaths, map, getResult());
+          }
+        });
   }
 
   public void postStartRegionOperation(final Operation op) throws IOException {
-    execOperation(coprocessors.isEmpty() ? null : new RegionOperation() {
+    execOperation(coprocEnvironments.isEmpty() ? null : new RegionObserverOperation() {
       @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        oserver.postStartRegionOperation(ctx, op);
+      public void call(RegionObserver observer) throws IOException {
+        observer.postStartRegionOperation(this, op);
       }
     });
   }
 
   public void postCloseRegionOperation(final Operation op) throws IOException {
-    execOperation(coprocessors.isEmpty() ? null : new RegionOperation() {
+    execOperation(coprocEnvironments.isEmpty() ? null : new RegionObserverOperation() {
       @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        oserver.postCloseRegionOperation(ctx, op);
+      public void call(RegionObserver observer) throws IOException {
+        observer.postCloseRegionOperation(this, op);
       }
     });
   }
@@ -1548,14 +1408,14 @@ public class RegionCoprocessorHost
   public StoreFileReader preStoreFileReaderOpen(final FileSystem fs, final Path p,
       final FSDataInputStreamWrapper in, final long size, final CacheConfig cacheConf,
       final Reference r) throws IOException {
-    return execOperationWithResult(null,
-        coprocessors.isEmpty() ? null : new RegionOperationWithResult<StoreFileReader>() {
-      @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        setResult(oserver.preStoreFileReaderOpen(ctx, fs, p, in, size, cacheConf, r, getResult()));
-      }
-    });
+    return execOperationWithResult(null, coprocEnvironments.isEmpty() ? null :
+        new ObserverOperationWithResult<RegionObserver, StoreFileReader>(regionObserverGetter) {
+          @Override
+          public StoreFileReader call(RegionObserver observer) throws IOException {
+            return observer.preStoreFileReaderOpen(this, fs, p, in, size, cacheConf, r,
+                getResult());
+          }
+        });
   }
 
   /**
@@ -1572,192 +1432,77 @@ public class RegionCoprocessorHost
   public StoreFileReader postStoreFileReaderOpen(final FileSystem fs, final Path p,
       final FSDataInputStreamWrapper in, final long size, final CacheConfig cacheConf,
       final Reference r, final StoreFileReader reader) throws IOException {
-    return execOperationWithResult(reader,
-        coprocessors.isEmpty() ? null : new RegionOperationWithResult<StoreFileReader>() {
-      @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        setResult(oserver.postStoreFileReaderOpen(ctx, fs, p, in, size, cacheConf, r, getResult()));
-      }
-    });
+    return execOperationWithResult(reader, coprocEnvironments.isEmpty() ? null :
+        new ObserverOperationWithResult<RegionObserver, StoreFileReader>(regionObserverGetter) {
+          @Override
+          public StoreFileReader call(RegionObserver observer) throws IOException {
+            return observer.postStoreFileReaderOpen(this, fs, p, in, size, cacheConf, r,
+                getResult());
+          }
+        });
   }
 
   public Cell postMutationBeforeWAL(final MutationType opType, final Mutation mutation,
       final Cell oldCell, Cell newCell) throws IOException {
-    return execOperationWithResult(newCell,
-        coprocessors.isEmpty() ? null : new RegionOperationWithResult<Cell>() {
-      @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        setResult(oserver.postMutationBeforeWAL(ctx, opType, mutation, oldCell, getResult()));
-      }
-    });
+    return execOperationWithResult(newCell, coprocEnvironments.isEmpty() ? null :
+        new ObserverOperationWithResult<RegionObserver, Cell>(regionObserverGetter) {
+          @Override
+          public Cell call(RegionObserver observer) throws IOException {
+            return observer.postMutationBeforeWAL(this, opType, mutation, oldCell, getResult());
+          }
+        });
   }
 
   public Message preEndpointInvocation(final Service service, final String methodName,
       Message request) throws IOException {
-    return execOperationWithResult(request,
-        coprocessors.isEmpty() ? null : new EndpointOperationWithResult<Message>() {
-      @Override
-      public void call(EndpointObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        setResult(oserver.preEndpointInvocation(ctx, service, methodName, getResult()));
-      }
-    });
+    return execOperationWithResult(request, coprocEnvironments.isEmpty() ? null :
+        new ObserverOperationWithResult<EndpointObserver, Message>(endpointObserverGetter) {
+          @Override
+          public Message call(EndpointObserver observer) throws IOException {
+            return observer.preEndpointInvocation(this, service, methodName, getResult());
+          }
+        });
   }
 
   public void postEndpointInvocation(final Service service, final String methodName,
       final Message request, final Message.Builder responseBuilder) throws IOException {
-    execOperation(coprocessors.isEmpty() ? null : new EndpointOperation() {
-      @Override
-      public void call(EndpointObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        oserver.postEndpointInvocation(ctx, service, methodName, request, responseBuilder);
-      }
-    });
+    execOperation(coprocEnvironments.isEmpty() ? null :
+        new ObserverOperationWithoutResult<EndpointObserver>(endpointObserverGetter) {
+          @Override
+          public void call(EndpointObserver observer) throws IOException {
+            observer.postEndpointInvocation(this, service, methodName, request, responseBuilder);
+          }
+        });
   }
 
   public DeleteTracker postInstantiateDeleteTracker(DeleteTracker tracker) throws IOException {
-    return execOperationWithResult(tracker,
-        coprocessors.isEmpty() ? null : new RegionOperationWithResult<DeleteTracker>() {
-      @Override
-      public void call(RegionObserver oserver, ObserverContext<RegionCoprocessorEnvironment> ctx)
-          throws IOException {
-        setResult(oserver.postInstantiateDeleteTracker(ctx, getResult()));
-      }
-    });
+    return execOperationWithResult(tracker, coprocEnvironments.isEmpty() ? null :
+        new ObserverOperationWithResult<RegionObserver, DeleteTracker>(regionObserverGetter) {
+          @Override
+          public DeleteTracker call(RegionObserver observer) throws IOException {
+            return observer.postInstantiateDeleteTracker(this, getResult());
+          }
+        });
   }
 
-  private static abstract class CoprocessorOperation
-      extends ObserverContext<RegionCoprocessorEnvironment> {
-    public CoprocessorOperation() {
-      this(RpcServer.getRequestUser());
-    }
-
-    public CoprocessorOperation(User user) {
-      super(user);
-    }
-
-    public abstract void call(Coprocessor observer,
-        ObserverContext<RegionCoprocessorEnvironment> ctx) throws IOException;
-    public abstract boolean hasCall(Coprocessor observer);
-    public void postEnvCall(RegionEnvironment env) { }
+  /////////////////////////////////////////////////////////////////////////////////////////////////
+  // BulkLoadObserver hooks
+  /////////////////////////////////////////////////////////////////////////////////////////////////
+  public void prePrepareBulkLoad(User user) throws IOException {
+    execOperation(coprocEnvironments.isEmpty() ? null :
+        new BulkLoadObserverOperation(user) {
+          @Override protected void call(BulkLoadObserver observer) throws IOException {
+            observer.prePrepareBulkLoad(this);
+          }
+        });
   }
 
-  private static abstract class RegionOperation extends CoprocessorOperation {
-    public RegionOperation() {
-    }
-
-    public RegionOperation(User user) {
-      super(user);
-    }
-
-    public abstract void call(RegionObserver observer,
-        ObserverContext<RegionCoprocessorEnvironment> ctx) throws IOException;
-
-    public boolean hasCall(Coprocessor observer) {
-      return observer instanceof RegionObserver;
-    }
-
-    public void call(Coprocessor observer, ObserverContext<RegionCoprocessorEnvironment> ctx)
-        throws IOException {
-      call((RegionObserver)observer, ctx);
-    }
-  }
-
-  private static abstract class RegionOperationWithResult<T> extends RegionOperation {
-    public RegionOperationWithResult() {
-    }
-
-    public RegionOperationWithResult(User user) {
-      super (user);
-    }
-
-    private T result = null;
-    public void setResult(final T result) { this.result = result; }
-    public T getResult() { return this.result; }
-  }
-
-  private static abstract class EndpointOperation extends CoprocessorOperation {
-    public abstract void call(EndpointObserver observer,
-        ObserverContext<RegionCoprocessorEnvironment> ctx) throws IOException;
-
-    public boolean hasCall(Coprocessor observer) {
-      return observer instanceof EndpointObserver;
-    }
-
-    public void call(Coprocessor observer, ObserverContext<RegionCoprocessorEnvironment> ctx)
-        throws IOException {
-      call((EndpointObserver)observer, ctx);
-    }
-  }
-
-  private static abstract class EndpointOperationWithResult<T> extends EndpointOperation {
-    private T result = null;
-    public void setResult(final T result) { this.result = result; }
-    public T getResult() { return this.result; }
-  }
-
-  private boolean execOperation(final CoprocessorOperation ctx)
-      throws IOException {
-    return execOperation(true, ctx);
-  }
-
-  private <T> T execOperationWithResult(final T defaultValue,
-      final RegionOperationWithResult<T> ctx) throws IOException {
-    if (ctx == null) return defaultValue;
-    ctx.setResult(defaultValue);
-    execOperation(true, ctx);
-    return ctx.getResult();
-  }
-
-  private <T> T execOperationWithResult(final boolean ifBypass, final T defaultValue,
-      final RegionOperationWithResult<T> ctx) throws IOException {
-    boolean bypass = false;
-    T result = defaultValue;
-    if (ctx != null) {
-      ctx.setResult(defaultValue);
-      bypass = execOperation(true, ctx);
-      result = ctx.getResult();
-    }
-    return bypass == ifBypass ? result : null;
-  }
-
-  private <T> T execOperationWithResult(final T defaultValue,
-      final EndpointOperationWithResult<T> ctx) throws IOException {
-    if (ctx == null) return defaultValue;
-    ctx.setResult(defaultValue);
-    execOperation(true, ctx);
-    return ctx.getResult();
-  }
-
-  private boolean execOperation(final boolean earlyExit, final CoprocessorOperation ctx)
-      throws IOException {
-    boolean bypass = false;
-    List<RegionEnvironment> envs = coprocessors.get();
-    for (int i = 0; i < envs.size(); i++) {
-      RegionEnvironment env = envs.get(i);
-      Coprocessor observer = env.getInstance();
-      if (ctx.hasCall(observer)) {
-        ctx.prepare(env);
-        Thread currentThread = Thread.currentThread();
-        ClassLoader cl = currentThread.getContextClassLoader();
-        try {
-          currentThread.setContextClassLoader(env.getClassLoader());
-          ctx.call(observer, ctx);
-        } catch (Throwable e) {
-          handleCoprocessorThrowable(env, e);
-        } finally {
-          currentThread.setContextClassLoader(cl);
-        }
-        bypass |= ctx.shouldBypass();
-        if (earlyExit && ctx.shouldComplete()) {
-          break;
-        }
-      }
-
-      ctx.postEnvCall(env);
-    }
-    return bypass;
+  public void preCleanupBulkLoad(User user) throws IOException {
+    execOperation(coprocEnvironments.isEmpty() ? null :
+        new BulkLoadObserverOperation(user) {
+          @Override protected void call(BulkLoadObserver observer) throws IOException {
+            observer.preCleanupBulkLoad(this);
+          }
+        });
   }
 }

@@ -20,8 +20,8 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.TableName;
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
-import org.apache.hadoop.hbase.classification.InterfaceStability;
+import org.apache.yetus.audience.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceStability;
 import java.io.IOException;
 import java.io.InterruptedIOException;
 import java.util.Collections;
@@ -58,12 +58,6 @@ import org.apache.hadoop.hbase.ipc.RpcControllerFactory;
 @InterfaceAudience.Private
 @InterfaceStability.Evolving
 public class BufferedMutatorImpl implements BufferedMutator {
-  /**
-   * Key to use setting non-default BufferedMutator implementation
-   * classname via Configuration.
-   */
-  public static final String HBASE_BUFFEREDMUTATOR_CLASSNAME_KEY =
-      "hbase.client.bufferedmutator.classname";
 
   private static final Log LOG = LogFactory.getLog(BufferedMutatorImpl.class);
 

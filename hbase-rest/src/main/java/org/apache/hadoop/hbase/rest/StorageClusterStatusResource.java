@@ -20,6 +20,7 @@
 package org.apache.hadoop.hbase.rest;
 
 import java.io.IOException;
+import java.util.EnumSet;
 
 import javax.ws.rs.GET;
 import javax.ws.rs.Produces;
@@ -32,11 +33,12 @@ import javax.ws.rs.core.UriInfo;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceAudience;
 import org.apache.hadoop.hbase.ClusterStatus;
 import org.apache.hadoop.hbase.ServerLoad;
 import org.apache.hadoop.hbase.RegionLoad;
 import org.apache.hadoop.hbase.ServerName;
+import org.apache.hadoop.hbase.ClusterStatus.Option;
 import org.apache.hadoop.hbase.rest.model.StorageClusterStatusModel;
 
 @InterfaceAudience.Private
@@ -68,7 +70,8 @@ public class StorageClusterStatusResource extends ResourceBase {
     }
     servlet.getMetrics().incrementRequests(1);
     try {
-      ClusterStatus status = servlet.getAdmin().getClusterStatus();
+      ClusterStatus status = servlet.getAdmin().getClusterStatus(
+        EnumSet.of(Option.LIVE_SERVERS, Option.DEAD_SERVERS));
       StorageClusterStatusModel model = new StorageClusterStatusModel();
       model.setRegions(status.getRegionsCount());
       model.setRequests(status.getRequestsCount());
@@ -85,7 +88,7 @@ public class StorageClusterStatusResource extends ResourceBase {
         for (RegionLoad region: load.getRegionsLoad().values()) {
           node.addRegion(region.getName(), region.getStores(),
             region.getStorefiles(), region.getStorefileSizeMB(),
-            region.getMemStoreSizeMB(), region.getStorefileIndexSizeMB(),
+            region.getMemStoreSizeMB(), region.getStorefileIndexSizeKB(),
             region.getReadRequestsCount(), region.getWriteRequestsCount(),
             region.getRootIndexSizeKB(), region.getTotalStaticIndexSizeKB(),
             region.getTotalStaticBloomSizeKB(), region.getTotalCompactingKVs(),

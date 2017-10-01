@@ -26,7 +26,7 @@ import java.util.Date;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceAudience;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.monitoring.LogMonitoring;
 import org.apache.hadoop.hbase.monitoring.StateDumpServlet;
@@ -106,7 +106,7 @@ public class RSDumpServlet extends StateDumpServlet {
 
   public static void dumpRowLock(HRegionServer hrs, PrintWriter out) {
     StringBuilder sb = new StringBuilder();
-    for (Region region : hrs.getOnlineRegions()) {
+    for (Region region : hrs.getRegions()) {
       HRegion hRegion = (HRegion)region;
       if (hRegion.getLockedRows().size() > 0) {
         for (HRegion.RowLockContext rowLockContext : hRegion.getLockedRows().values()) {

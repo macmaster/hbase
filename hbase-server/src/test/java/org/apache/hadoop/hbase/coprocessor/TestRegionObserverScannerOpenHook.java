@@ -25,6 +25,7 @@ import static org.junit.Assert.assertNull;
 import java.io.IOException;
 import java.util.List;
 import java.util.NavigableSet;
+import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 
 import org.apache.hadoop.conf.Configuration;
@@ -42,6 +43,7 @@ import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.Admin;
 import org.apache.hadoop.hbase.client.Get;
 import org.apache.hadoop.hbase.client.Put;
+import org.apache.hadoop.hbase.client.RegionInfo;
 import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.client.Scan;
 import org.apache.hadoop.hbase.client.Table;
@@ -50,6 +52,7 @@ import org.apache.hadoop.hbase.filter.FilterBase;
 import org.apache.hadoop.hbase.regionserver.ChunkCreator;
 import org.apache.hadoop.hbase.regionserver.HRegion;
 import org.apache.hadoop.hbase.regionserver.HRegionServer;
+import org.apache.hadoop.hbase.regionserver.HStore;
 import org.apache.hadoop.hbase.regionserver.InternalScanner;
 import org.apache.hadoop.hbase.regionserver.KeyValueScanner;
 import org.apache.hadoop.hbase.regionserver.MemStoreLABImpl;
@@ -57,9 +60,11 @@ import org.apache.hadoop.hbase.regionserver.Region;
 import org.apache.hadoop.hbase.regionserver.RegionCoprocessorHost;
 import org.apache.hadoop.hbase.regionserver.RegionServerServices;
 import org.apache.hadoop.hbase.regionserver.ScanType;
+import org.apache.hadoop.hbase.regionserver.ScannerContext;
 import org.apache.hadoop.hbase.regionserver.Store;
 import org.apache.hadoop.hbase.regionserver.StoreScanner;
 import org.apache.hadoop.hbase.regionserver.compactions.CompactionContext;
+import org.apache.hadoop.hbase.regionserver.compactions.CompactionLifeCycleTracker;
 import org.apache.hadoop.hbase.regionserver.throttle.ThroughputController;
 import org.apache.hadoop.hbase.security.User;
 import org.apache.hadoop.hbase.testclassification.CoprocessorTests;
@@ -100,34 +105,62 @@ public class TestRegionObserverScannerOpenHook {
   /**
    * Do the default logic in {@link RegionObserver} interface.
    */
-  public static class EmptyRegionObsever implements RegionObserver {
+  public static class EmptyRegionObsever implements RegionCoprocessor, RegionObserver {
+    @Override
+    public Optional<RegionObserver> getRegionObserver() {
+      return Optional.of(this);
+    }
   }
 
   /**
    * Don't return any data from a scan by creating a custom {@link StoreScanner}.
    */
-  public static class NoDataFromScan implements RegionObserver {
+  public static class NoDataFromScan implements RegionCoprocessor, RegionObserver {
+    @Override
+    public Optional<RegionObserver> getRegionObserver() {
+      return Optional.of(this);
+    }
+
     @Override
     public KeyValueScanner preStoreScannerOpen(ObserverContext<RegionCoprocessorEnvironment> c,
         Store store, Scan scan, NavigableSet<byte[]> targetCols, KeyValueScanner s, long readPt)
         throws IOException {
       scan.setFilter(new NoDataFilter());
-      return new StoreScanner(store, store.getScanInfo(), scan, targetCols, readPt);
+      HStore hs = (HStore) store;
+      return new StoreScanner(hs, hs.getScanInfo(), scan, targetCols, readPt);
     }
   }
 
+  private static final InternalScanner NO_DATA = new InternalScanner() {
+
+    @Override
+    public boolean next(List<Cell> result, ScannerContext scannerContext) throws IOException {
+      return false;
+    }
+
+    @Override
+    public boolean next(List<Cell> results) throws IOException {
+      return false;
+    }
+
+    @Override
+    public void close() throws IOException {}
+  };
   /**
    * Don't allow any data in a flush by creating a custom {@link StoreScanner}.
    */
-  public static class NoDataFromFlush implements RegionObserver {
+  public static class NoDataFromFlush implements RegionCoprocessor, RegionObserver {
+    @Override
+    public Optional<RegionObserver> getRegionObserver() {
+      return Optional.of(this);
+    }
+
     @Override
     public InternalScanner preFlushScannerOpen(ObserverContext<RegionCoprocessorEnvironment> c,
-        Store store, List<KeyValueScanner> scanners, InternalScanner s) throws IOException {
-      Scan scan = new Scan();
-      scan.setFilter(new NoDataFilter());
-      return new StoreScanner(store, store.getScanInfo(), scan,
-          scanners, ScanType.COMPACT_RETAIN_DELETES,
-          store.getSmallestReadPoint(), HConstants.OLDEST_TIMESTAMP);
+        Store store, List<KeyValueScanner> scanners, InternalScanner s, long readPoint)
+        throws IOException {
+      scanners.forEach(KeyValueScanner::close);
+      return NO_DATA;
     }
   }
 
@@ -135,16 +168,19 @@ public class TestRegionObserverScannerOpenHook {
    * Don't allow any data to be written out in the compaction by creating a custom
    * {@link StoreScanner}.
    */
-  public static class NoDataFromCompaction implements RegionObserver {
+  public static class NoDataFromCompaction implements RegionCoprocessor, RegionObserver {
+    @Override
+    public Optional<RegionObserver> getRegionObserver() {
+      return Optional.of(this);
+    }
+
     @Override
     public InternalScanner preCompactScannerOpen(ObserverContext<RegionCoprocessorEnvironment> c,
         Store store, List<? extends KeyValueScanner> scanners, ScanType scanType,
-        long earliestPutTs, InternalScanner s) throws IOException {
-      Scan scan = new Scan();
-      scan.setFilter(new NoDataFilter());
-      return new StoreScanner(store, store.getScanInfo(), scan, scanners,
-          ScanType.COMPACT_RETAIN_DELETES, store.getSmallestReadPoint(),
-          HConstants.OLDEST_TIMESTAMP);
+        long earliestPutTs, InternalScanner s, CompactionLifeCycleTracker tracker, long readPoint)
+        throws IOException {
+      scanners.forEach(KeyValueScanner::close);
+      return NO_DATA;
     }
   }
 
@@ -227,7 +263,7 @@ public class TestRegionObserverScannerOpenHook {
 
     @SuppressWarnings("deprecation")
     public CompactionCompletionNotifyingRegion(Path tableDir, WAL log,
-        FileSystem fs, Configuration confParam, HRegionInfo info,
+        FileSystem fs, Configuration confParam, RegionInfo info,
         TableDescriptor htd, RegionServerServices rsServices) {
       super(tableDir, log, fs, confParam, info, htd, rsServices);
     }
@@ -238,7 +274,7 @@ public class TestRegionObserverScannerOpenHook {
     }
 
     @Override
-    public boolean compact(CompactionContext compaction, Store store,
+    public boolean compact(CompactionContext compaction, HStore store,
         ThroughputController throughputController) throws IOException {
       boolean ret = super.compact(compaction, store, throughputController);
       if (ret) compactionStateChangeLatch.countDown();
@@ -246,7 +282,7 @@ public class TestRegionObserverScannerOpenHook {
     }
 
     @Override
-    public boolean compact(CompactionContext compaction, Store store,
+    public boolean compact(CompactionContext compaction, HStore store,
         ThroughputController throughputController, User user) throws IOException {
       boolean ret = super.compact(compaction, store, throughputController, user);
       if (ret) compactionStateChangeLatch.countDown();
@@ -285,7 +321,7 @@ public class TestRegionObserverScannerOpenHook {
     table.put(put);
 
     HRegionServer rs = UTIL.getRSForFirstRegionInTable(desc.getTableName());
-    List<Region> regions = rs.getOnlineRegions(desc.getTableName());
+    List<Region> regions = rs.getRegions(desc.getTableName());
     assertEquals("More than 1 region serving test table with 1 row", 1, regions.size());
     Region region = regions.get(0);
     admin.flushRegion(region.getRegionInfo().getRegionName());

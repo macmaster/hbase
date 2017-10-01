@@ -36,7 +36,7 @@ import org.apache.hadoop.hbase.HBaseIOException;
 import org.apache.hadoop.hbase.HRegionLocation;
 import org.apache.hadoop.hbase.RegionLocations;
 import org.apache.hadoop.hbase.TableName;
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceAudience;
 import org.apache.hadoop.hbase.ipc.HBaseRpcController;
 import org.apache.hadoop.hbase.ipc.RpcControllerFactory;
 import org.apache.hadoop.hbase.shaded.protobuf.ProtobufUtil;
@@ -216,6 +216,9 @@ public class RpcRetryingCallerWithReadReplicas {
           if (f != null) {
             return f.get(); //great we got a response
           }
+          if (cConnection.getConnectionMetrics() != null) {
+            cConnection.getConnectionMetrics().incrHedgedReadOps();
+          }
         } catch (ExecutionException e) {
           // We ignore the ExecutionException and continue with the secondary replicas
           if (LOG.isDebugEnabled()) {
@@ -238,12 +241,16 @@ public class RpcRetryingCallerWithReadReplicas {
       addCallsForReplica(cs, rl, 1, rl.size() - 1);
     }
     try {
-      Future<Result> f = cs.pollForFirstSuccessfullyCompletedTask(operationTimeout,
-          TimeUnit.MILLISECONDS, startIndex, endIndex);
+      ResultBoundedCompletionService<Result>.QueueingFuture<Result> f =
+          cs.pollForFirstSuccessfullyCompletedTask(operationTimeout, TimeUnit.MILLISECONDS, startIndex, endIndex);
       if (f == null) {
         throw new RetriesExhaustedException("Timed out after " + operationTimeout +
             "ms. Get is sent to replicas with startIndex: " + startIndex +
             ", endIndex: " + endIndex + ", Locations: " + rl);
+      }
+      if (cConnection.getConnectionMetrics() != null && !isTargetReplicaSpecified &&
+          !skipPrimary && f.getReplicaId() != RegionReplicaUtil.DEFAULT_REPLICA_ID) {
+        cConnection.getConnectionMetrics().incrHedgedReadWin();
       }
       return f.get();
     } catch (ExecutionException e) {
@@ -312,10 +319,10 @@ public class RpcRetryingCallerWithReadReplicas {
 
     RegionLocations rl;
     try {
-      if (!useCache) {
-        rl = cConnection.relocateRegion(tableName, row, replicaId);
+      if (useCache) {
+        rl = cConnection.locateRegion(tableName, row, true, true, replicaId);
       } else {
-        rl = cConnection.locateRegion(tableName, row, useCache, true, replicaId);
+        rl = cConnection.relocateRegion(tableName, row, replicaId);
       }
     } catch (DoNotRetryIOException | InterruptedIOException | RetriesExhaustedException e) {
       throw e;

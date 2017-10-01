@@ -30,14 +30,15 @@ import java.util.Map;
 import java.util.concurrent.ExecutorService;
 
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hbase.CompareOperator;
 import org.apache.hadoop.hbase.HBaseInterfaceAudience;
 import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.TableName;
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
-import org.apache.hadoop.hbase.classification.InterfaceStability;
+import org.apache.yetus.audience.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceStability;
 import org.apache.hadoop.hbase.client.coprocessor.Batch;
 import org.apache.hadoop.hbase.client.coprocessor.Batch.Callback;
-import org.apache.hadoop.hbase.coprocessor.CoprocessorHost.Environment;
+import org.apache.hadoop.hbase.coprocessor.BaseEnvironment;
 import org.apache.hadoop.hbase.filter.CompareFilter.CompareOp;
 import org.apache.hadoop.hbase.ipc.CoprocessorRpcChannel;
 import org.apache.hadoop.io.MultipleIOException;
@@ -69,7 +70,7 @@ public final class HTableWrapper implements Table {
    * @throws IOException
    */
   public static Table createWrapper(List<Table> openTables,
-      TableName tableName, Environment env, ExecutorService pool) throws IOException {
+      TableName tableName, BaseEnvironment env, ExecutorService pool) throws IOException {
     return new HTableWrapper(openTables, tableName,
         CoprocessorHConnection.getConnectionForEnvironment(env), pool);
   }
@@ -170,6 +171,11 @@ public final class HTableWrapper implements Table {
     return table.checkAndPut(row, family, qualifier, compareOp, value, put);
   }
 
+  public boolean checkAndPut(byte[] row, byte[] family, byte[] qualifier,
+                             CompareOperator op, byte[] value, Put put) throws IOException {
+    return table.checkAndPut(row, family, qualifier, op, value, put);
+  }
+
   public boolean checkAndDelete(byte[] row, byte[] family, byte[] qualifier,
       byte[] value, Delete delete) throws IOException {
     return table.checkAndDelete(row, family, qualifier, value, delete);
@@ -178,6 +184,11 @@ public final class HTableWrapper implements Table {
   public boolean checkAndDelete(byte[] row, byte[] family, byte[] qualifier,
       CompareOp compareOp, byte[] value, Delete delete) throws IOException {
     return table.checkAndDelete(row, family, qualifier, compareOp, value, delete);
+  }
+
+  public boolean checkAndDelete(byte[] row, byte[] family, byte[] qualifier,
+                                CompareOperator op, byte[] value, Delete delete) throws IOException {
+    return table.checkAndDelete(row, family, qualifier, op, value, delete);
   }
 
   public long incrementColumnValue(byte[] row, byte[] family,
@@ -290,6 +301,13 @@ public final class HTableWrapper implements Table {
   public boolean checkAndMutate(byte[] row, byte[] family, byte[] qualifier,
       CompareOp compareOp, byte[] value, RowMutations rm) throws IOException {
     return table.checkAndMutate(row, family, qualifier, compareOp, value, rm);
+  }
+
+  @Override
+  public boolean checkAndMutate(byte[] row, byte[] family, byte[] qualifier,
+                                CompareOperator op, byte[] value, RowMutations rm)
+  throws IOException {
+    return table.checkAndMutate(row, family, qualifier, op, value, rm);
   }
 
   @Override

@@ -26,7 +26,7 @@ import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 
 import org.apache.hadoop.hbase.CellScanner;
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceAudience;
 import org.apache.hadoop.hbase.ipc.RpcServer.CallCleanup;
 import org.apache.hadoop.hbase.nio.ByteBuff;
 import org.apache.hadoop.hbase.nio.SingleByteBuff;
@@ -38,6 +38,7 @@ import org.apache.htrace.TraceInfo;
 
 /**
  * RpcConnection implementation for netty rpc server.
+ * @since 2.0.0
  */
 @InterfaceAudience.Private
 class NettyServerRpcConnection extends ServerRpcConnection {

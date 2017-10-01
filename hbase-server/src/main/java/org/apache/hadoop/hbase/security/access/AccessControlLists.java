@@ -18,6 +18,7 @@
 
 package org.apache.hadoop.hbase.security.access;
 
+import org.apache.hadoop.hbase.CompareOperator;
 import org.apache.hadoop.hbase.shaded.com.google.common.collect.ArrayListMultimap;
 import org.apache.hadoop.hbase.shaded.com.google.common.collect.ListMultimap;
 import org.apache.hadoop.hbase.shaded.com.google.common.collect.Lists;
@@ -50,7 +51,7 @@ import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.Tag;
 import org.apache.hadoop.hbase.TagType;
 import org.apache.hadoop.hbase.TagUtil;
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceAudience;
 import org.apache.hadoop.hbase.client.Connection;
 import org.apache.hadoop.hbase.client.ConnectionFactory;
 import org.apache.hadoop.hbase.client.Delete;
@@ -323,7 +324,7 @@ public class AccessControlLists {
     scan.addFamily(ACL_LIST_FAMILY);
 
     String columnName = Bytes.toString(column);
-    scan.setFilter(new QualifierFilter(CompareOp.EQUAL, new RegexStringComparator(
+    scan.setFilter(new QualifierFilter(CompareOperator.EQUAL, new RegexStringComparator(
         String.format("(%s%s%s)|(%s%s)$",
             ACL_KEY_DELIMITER, columnName, ACL_KEY_DELIMITER,
             ACL_KEY_DELIMITER, columnName))));

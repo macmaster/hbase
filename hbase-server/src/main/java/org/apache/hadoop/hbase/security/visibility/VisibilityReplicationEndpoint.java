@@ -21,7 +21,6 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
@@ -32,22 +31,20 @@ import org.apache.hadoop.hbase.Cell;
 import org.apache.hadoop.hbase.CellUtil;
 import org.apache.hadoop.hbase.Tag;
 import org.apache.hadoop.hbase.TagType;
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
-import org.apache.hadoop.hbase.regionserver.wal.WALEdit;
+import org.apache.yetus.audience.InterfaceAudience;
+import org.apache.hadoop.hbase.wal.WALEdit;
 import org.apache.hadoop.hbase.replication.ReplicationEndpoint;
 import org.apache.hadoop.hbase.replication.ReplicationPeerConfig;
 import org.apache.hadoop.hbase.replication.WALEntryFilter;
 import org.apache.hadoop.hbase.wal.WAL.Entry;
 
-import org.apache.hadoop.hbase.shaded.com.google.common.util.concurrent.ListenableFuture;
-import org.apache.hadoop.hbase.shaded.com.google.common.util.concurrent.Service;
-
 @InterfaceAudience.Private
 public class VisibilityReplicationEndpoint implements ReplicationEndpoint {
 
   private static final Log LOG = LogFactory.getLog(VisibilityReplicationEndpoint.class);
-  private ReplicationEndpoint delegator;
-  private VisibilityLabelService visibilityLabelsService;
+
+  private final ReplicationEndpoint delegator;
+  private final VisibilityLabelService visibilityLabelsService;
 
   public VisibilityReplicationEndpoint(ReplicationEndpoint endpoint,
       VisibilityLabelService visibilityLabelsService) {
@@ -62,7 +59,7 @@ public class VisibilityReplicationEndpoint implements ReplicationEndpoint {
 
   @Override
   public void peerConfigUpdated(ReplicationPeerConfig rpc){
-
+    delegator.peerConfigUpdated(rpc);
   }
 
   @Override
@@ -138,23 +135,16 @@ public class VisibilityReplicationEndpoint implements ReplicationEndpoint {
   }
 
   @Override
-  public Service startAsync() {
-    return this.delegator.startAsync();
-  }
-
-  @Override
   public boolean isRunning() {
-    return delegator.isRunning();
+    return this.delegator.isRunning();
   }
 
   @Override
-  public State state() {
-    return delegator.state();
-  }
+  public boolean isStarting() {return this.delegator.isStarting();}
 
   @Override
-  public Service stopAsync() {
-    return this.delegator.stopAsync();
+  public void start() {
+    this.delegator.start();
   }
 
   @Override
@@ -163,8 +153,13 @@ public class VisibilityReplicationEndpoint implements ReplicationEndpoint {
   }
 
   @Override
-  public void awaitRunning(long l, TimeUnit timeUnit) throws TimeoutException {
-    this.delegator.awaitRunning(l, timeUnit);
+  public void awaitRunning(long timeout, TimeUnit unit) throws TimeoutException {
+    this.delegator.awaitRunning(timeout, unit);
+  }
+
+  @Override
+  public void stop() {
+    this.delegator.stop();
   }
 
   @Override
@@ -173,17 +168,12 @@ public class VisibilityReplicationEndpoint implements ReplicationEndpoint {
   }
 
   @Override
-  public void awaitTerminated(long l, TimeUnit timeUnit) throws TimeoutException {
-    this.delegator.awaitTerminated(l, timeUnit);
+  public void awaitTerminated(long timeout, TimeUnit unit) throws TimeoutException {
+    this.delegator.awaitTerminated(timeout, unit);
   }
 
   @Override
   public Throwable failureCause() {
     return this.delegator.failureCause();
-  }
-
-  @Override
-  public void addListener(Listener listener, Executor executor) {
-    this.delegator.addListener(listener, executor);
   }
 }

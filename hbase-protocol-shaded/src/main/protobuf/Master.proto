@@ -15,6 +15,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+syntax = "proto2";
 
 // All to do with the Master.  Includes schema management since these
 // changes are run by the Master process.
@@ -485,7 +486,7 @@ message GetTableStateResponse {
 }
 
 message GetClusterStatusRequest {
-  required Options cluster_options = 1;
+  repeated Option options = 1;
 }
 
 message GetClusterStatusResponse {
@@ -544,18 +545,18 @@ message AbortProcedureResponse {
   required bool is_procedure_aborted = 1;
 }
 
-message ListProceduresRequest {
+message GetProceduresRequest {
 }
 
-message ListProceduresResponse {
+message GetProceduresResponse {
   repeated Procedure procedure = 1;
 }
 
-message ListLocksRequest {
+message GetLocksRequest {
 }
 
-message ListLocksResponse {
-  repeated LockInfo lock = 1;
+message GetLocksResponse {
+  repeated LockedResource lock = 1;
 }
 
 message SetQuotaRequest {
@@ -620,6 +621,21 @@ message RemoveDrainFromRegionServersRequest {
 }
 
 message RemoveDrainFromRegionServersResponse {
+}
+
+message ListDeadServersRequest {
+}
+
+message ListDeadServersResponse {
+  repeated ServerName server_name = 1;
+}
+
+message ClearDeadServersRequest {
+  repeated ServerName server_name = 1;
+}
+
+message ClearDeadServersResponse {
+  repeated ServerName server_name = 1;
 }
 
 service MasterService {
@@ -917,11 +933,11 @@ service MasterService {
     returns(AbortProcedureResponse);
 
   /** returns a list of procedures */
-  rpc ListProcedures(ListProceduresRequest)
-    returns(ListProceduresResponse);
+  rpc GetProcedures(GetProceduresRequest)
+    returns(GetProceduresResponse);
 
-  rpc ListLocks(ListLocksRequest)
-    returns(ListLocksResponse);
+  rpc GetLocks(GetLocksRequest)
+    returns(GetLocksResponse);
 
   /** Add a replication peer */
   rpc AddReplicationPeer(AddReplicationPeerRequest)
@@ -970,4 +986,12 @@ service MasterService {
   /** Fetches the Master's view of quotas */
   rpc GetQuotaStates(GetQuotaStatesRequest)
     returns(GetQuotaStatesResponse);
+
+  /** clear dead servers from master*/
+  rpc ClearDeadServers(ClearDeadServersRequest)
+    returns(ClearDeadServersResponse);
+
+  /** Returns a list of Dead Servers. */
+  rpc ListDeadServers(ListDeadServersRequest)
+    returns(ListDeadServersResponse);
 }

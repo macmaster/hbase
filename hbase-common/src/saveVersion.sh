@@ -27,7 +27,11 @@ outputDirectory=$2
 pushd .
 cd ..
 
-user=`whoami`
+user=`whoami | sed -n -e 's/\\\/\\\\\\\\/p'`
+if [ "$user" == "" ]
+then
+  user=`whoami`
+fi
 date=`date`
 cwd=`pwd`
 if [ -d .svn ]; then
@@ -61,7 +65,7 @@ cat >"$outputDirectory/org/apache/hadoop/hbase/Version.java" <<EOF
  */
 package org.apache.hadoop.hbase;
 
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceAudience;
 
 @InterfaceAudience.Private
 public class Version {

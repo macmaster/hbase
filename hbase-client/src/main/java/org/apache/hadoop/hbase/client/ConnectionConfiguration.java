@@ -13,7 +13,7 @@ package org.apache.hadoop.hbase.client;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.HConstants;
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceAudience;
 
 import org.apache.hadoop.hbase.shaded.com.google.common.annotations.VisibleForTesting;
 
@@ -31,7 +31,7 @@ public class ConnectionConfiguration {
   public static final String WRITE_BUFFER_SIZE_KEY = "hbase.client.write.buffer";
   public static final long WRITE_BUFFER_SIZE_DEFAULT = 2097152;
   public static final String MAX_KEYVALUE_SIZE_KEY = "hbase.client.keyvalue.maxsize";
-  public static final int MAX_KEYVALUE_SIZE_DEFAULT = -1;
+  public static final int MAX_KEYVALUE_SIZE_DEFAULT = 10485760;
 
   private final long writeBufferSize;
   private final int metaOperationTimeout;

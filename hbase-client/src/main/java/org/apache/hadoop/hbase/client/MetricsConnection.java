@@ -32,7 +32,7 @@ import org.apache.hadoop.metrics2.lib.MutableMetric;
 import org.apache.yetus.audience.InterfaceAudience;
 
 /**
- * This class is for maintaining the various connection statistics.
+ * This class is for maintaining the various connection statistics
  * and publishing them through the metrics interfaces.
  *
  * This class manages its own MetricsClientSource and delegates calls to update metrics as necessary.
@@ -44,10 +44,13 @@ public class MetricsConnection implements StatisticTrackable {
 
   /** Set this key to {@code true} to enable metrics collection of client requests. */
   public static final String CLIENT_SIDE_METRICS_ENABLED_KEY = "hbase.client.metrics.enable";
+  /** Set this key to {@code true} to enable metrics collection of Active Threads and Executors. */
   public static final String CLIENT_SIDE_POOLS_ENABLED_KEY = "hbase.client.metrics.pools.enable";
 
   protected final Configuration config;
   protected final MetricsClientSource source;
+
+  // Optional Thread Pool and Executor metrics
   private final String POOL_EXECUTOR_ACTIVE_KEY = "executorPoolActiveThreads";
   private final String POOL_EXECUTOR_ACTIVE_DESC = "number of active threads in the executor pool";
   private final String POOL_META_ACTIVE_KEY = "metaPoolActiveThreads";
@@ -115,7 +118,7 @@ public class MetricsConnection implements StatisticTrackable {
 
   /** Increment the number of hedged read returned faster than the original read. */
   public void incrHedgedReadWin() {
-    hedgedReadWin.inc();
+    source.incrHedgedReadWin();
   }
 
   /** Increment the number of normal runner counts. */

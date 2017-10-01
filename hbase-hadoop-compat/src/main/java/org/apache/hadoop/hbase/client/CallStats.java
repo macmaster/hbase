@@ -56,11 +56,11 @@ public class CallStats {
     this.callTimeMs = callTimeMs;
   }
 
-  public int getConcurrentCallsPerServer() {
+  public long getConcurrentCallsPerServer() {
     return concurrentCallsPerServer;
   }
 
-  public void setConcurrentCallsPerServer(int callsPerServer) {
+  public void setConcurrentCallsPerServer(long callsPerServer) {
     this.concurrentCallsPerServer = callsPerServer;
   }
 

@@ -24,7 +24,6 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
 
-import org.apache.hadoop.hbase.classification.InterfaceAudience;
 import org.apache.hadoop.hbase.metrics.BaseSourceImpl;
 import org.apache.hadoop.hbase.shaded.com.google.protobuf.Descriptors.MethodDescriptor;
 import org.apache.hadoop.hbase.shaded.com.google.protobuf.Message;
@@ -38,6 +37,8 @@ import org.apache.hadoop.metrics2.lib.MutableFastCounter;
 import org.apache.hadoop.metrics2.lib.MutableHistogram;
 import org.apache.hadoop.metrics2.lib.MutableMetric;
 import org.apache.hadoop.metrics2.lib.MutableTimeHistogram;
+
+import org.apache.yetus.audience.InterfaceAudience;
 
 import com.google.common.annotations.VisibleForTesting;
 
@@ -75,30 +76,30 @@ public class MetricsClientSourceImpl extends BaseSourceImpl implements MetricsCl
   protected final CallTracker incrementTracker;
   @VisibleForTesting
   protected final CallTracker putTracker;
-  @VisibleForTesting 
+  @VisibleForTesting
   protected final CallTracker multiTracker;
-  @VisibleForTesting 
+  @VisibleForTesting
   protected final RunnerStats runnerStats;
 
-  @VisibleForTesting 
+  @VisibleForTesting
   protected final MutableFastCounter hedgedReadOps;
-  @VisibleForTesting 
+  @VisibleForTesting
   protected final MutableFastCounter hedgedReadWin;
-  @VisibleForTesting 
-  protected final MutableHistogram concurrentCallsPerServer;
+  @VisibleForTesting
+  protected final MutableHistogram concurrentCallsPerServerHistogram;
 
-  @VisibleForTesting 
+  @VisibleForTesting
   protected final Map<String, RegionStats> regionStats;
-  @VisibleForTesting 
+  @VisibleForTesting
   protected final Function<String, RegionStats> newRegionStat = 
       path -> new RegionStats(registry, path, "region stats for " + path);
-  
+
   @VisibleForTesting
   protected final ConcurrentMap<String, MutableFastCounter> cacheDroppingExceptions;
   @VisibleForTesting
-  protected final Function<String, MutableFastCounter> newCacheCounter = 
+  protected final Function<String, MutableFastCounter> newCacheCounter =
       name -> registry.newCounter(name, "cache dropping exception.", 0l);
-  
+
   /**
    * Constructs a new MetricsClientSourceImpl.
    */
@@ -126,10 +127,10 @@ public class MetricsClientSourceImpl extends BaseSourceImpl implements MetricsCl
     this.incrementTracker = new CallTracker(this.registry, "Increment", "rpc metrics for INCREMENT calls");
     this.putTracker = new CallTracker(this.registry, "Put", "rpc metrics for PUT calls");
     this.multiTracker = new CallTracker(this.registry, "Multi", "rpc metrics for Multi-commit transaction calls");
-    
-    this.hedgedReadOps = this.registry.newCounter(name(this.getClass(), "hedgedReadOps", scope), 0l);
-    this.hedgedReadWin = this.registry.newCcounter(name(this.getClass(), "hedgedReadWin", scope), 0l);
-    this.concurrentCallsPerServer = registry.histogram(name(MetricsConnection.class, "concurrentCallsPerServer", scope));
+
+    this.hedgedReadOps = this.registry.newCounter(HEDGED_READ_OPS_KEY, HEDGED_READ_OPS_DESC, 0l);
+    this.hedgedReadWin = this.registry.newCounter(HEDGED_READ_WIN_KEY, HEDGED_READ_WIN_DESC, 0l);
+    this.concurrentCallsPerServerHistogram = this.registry.newHistogram(CONCURRENT_CALLS_KEY, CONCURRENT_CALLS_DESC);
 
     this.runnerStats = new RunnerStats(this.registry);
     this.regionStats = new ConcurrentHashMap<>();
@@ -150,8 +151,7 @@ public class MetricsClientSourceImpl extends BaseSourceImpl implements MetricsCl
     private RunnerStats(DynamicMetricsRegistry registry) {
       this.normalRunners = registry.newCounter(RUNNERS_NORMAL_COUNT_KEY, RUNNERS_NORMAL_COUNT_DESC, 0l);
       this.delayRunners = registry.newCounter(RUNNERS_DELAY_COUNT_KEY, RUNNERS_DELAY_COUNT_DESC, 0l);
-      this.delayIntervalHistogram = registry.newHistogram(RUNNERS_DELAY_HIST_KEY,
-          RUNNERS_DELAY_HIST_DESC);
+      this.delayIntervalHistogram = registry.newHistogram(RUNNERS_DELAY_HIST_KEY, RUNNERS_DELAY_HIST_DESC);
     }
 
     public void incrNormalRunners() {
@@ -241,6 +241,16 @@ public class MetricsClientSourceImpl extends BaseSourceImpl implements MetricsCl
   }
 
   @Override
+  public void incrHedgedReadOps() {
+    this.hedgedReadOps.incr();
+  }
+
+  @Override
+  public void incrHedgedReadWin() {
+    this.hedgedReadWin.incr();
+  }
+
+  @Override
   public void incrNormalRunners() {
     this.runnerStats.incrNormalRunners();
   }
@@ -254,7 +264,7 @@ public class MetricsClientSourceImpl extends BaseSourceImpl implements MetricsCl
   public void incrCacheDroppingExceptions(Object exception) {
     String exceptionName = (exception == null ? UNKNOWN_EXCEPTION : exception.getClass().getSimpleName());
     exceptionName = String.format("%s_%s", CACHE_BASE, exceptionName);
-    cacheDroppingExceptions.computeIfAbsent(exceptionName, newCacheCounter).incr(); 
+    cacheDroppingExceptions.computeIfAbsent(exceptionName, newCacheCounter).incr();
   }
 
   @Override
@@ -267,11 +277,11 @@ public class MetricsClientSourceImpl extends BaseSourceImpl implements MetricsCl
   @Override
   /** Report RPC context to metrics system. */
   public void updateRpc(MethodDescriptor method, Message param, CallStats stats) {
-    int callsPerServer = stats.getConcurrentCallsPerServer();
+    long callsPerServer = stats.getConcurrentCallsPerServer();
     if (callsPerServer > 0) {
-      concurrentCallsPerServerHist.update(callsPerServer);
+      concurrentCallsPerServerHistogram.add(callsPerServer);
     }
- 
+
     // this implementation is tied directly to protobuf implementation details. would be better
     // if we could dispatch based on something static, ie, request Message type.
     if (method.getService() == ClientService.getDescriptor()) {

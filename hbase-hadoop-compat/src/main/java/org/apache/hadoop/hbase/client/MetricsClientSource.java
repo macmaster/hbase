@@ -61,6 +61,16 @@ public interface MetricsClientSource extends BaseSource {
   String META_CACHE_CLEAR_REGIONS_DESC = "";
   String META_CACHE_CLEAR_SERVERS_DESC = "";
 
+  // Hedged Read
+  String HEDGED_READ_OPS_KEY = "hedgedReadOps";
+  String HEDGED_READ_OPS_DESC = "number of hedged read ops that have occured";
+  String HEDGED_READ_WIN_KEY = "hedgedReadWin";
+  String HEDGED_READ_WIN_DESC = "number of hedged read ops that returned faster than original read";
+
+  // Concurrent Server Calls
+  String CONCURRENT_CALLS_KEY = "concurrentCallsPerServer";
+  String CONCURRENT_CALLS_DESC = "";
+
   // Runner Stats
   String RUNNERS_NORMAL_COUNT_KEY = "normalRunnersCount";
   String RUNNERS_DELAY_COUNT_KEY = "delayRunnersCount";
@@ -76,9 +86,9 @@ public interface MetricsClientSource extends BaseSource {
   final String RPC_RESPONSE_BASE = "rpcCallResponseSizeBytes";
 
   // Other Bases
-  final String MEMLOAD_BASE = "memStoreLoad";
+  final String MEMLOAD_BASE = "memstoreLoad";
   final String HEAP_BASE = "heapOccupancy";
-  final String CACHE_BASE = "cacheDroppingExceptions_";
+  final String CACHE_BASE = "cacheDroppingExceptions";
   final String UNKNOWN_EXCEPTION = "UnknownException";
 
   /***************** Metrics Routines *****************/
@@ -94,6 +104,12 @@ public interface MetricsClientSource extends BaseSource {
 
   /** Increment the number of meta cache drops for the requested individual region. */
   public void incrMetaCacheNumClearRegion();
+
+  /** Increment the number of hedged read that have occurred. */
+  public void incrHedgedReadOps();
+
+  /** Increment the number of hedged read returned faster than the original read. */
+  public void incrHedgedReadWin();
 
   /** Increment the count of normal runners. */
   public void incrNormalRunners();

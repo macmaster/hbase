@@ -34,7 +34,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
-import com.codahale.metrics.Counter;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.commons.logging.impl.Log4JLogger;
@@ -48,6 +47,7 @@ import org.apache.hadoop.hbase.KeyValue;
 import org.apache.hadoop.hbase.NotServingRegionException;
 import org.apache.hadoop.hbase.RegionLocations;
 import org.apache.hadoop.hbase.TableNotFoundException;
+import org.apache.hadoop.hbase.client.MetricsClientSourceImpl;
 import org.apache.hadoop.hbase.coprocessor.ObserverContext;
 import org.apache.hadoop.hbase.coprocessor.RegionCoprocessor;
 import org.apache.hadoop.hbase.coprocessor.RegionCoprocessorEnvironment;
@@ -63,6 +63,7 @@ import org.apache.hadoop.hbase.regionserver.TestRegionServerNoMaster;
 import org.apache.hadoop.hbase.testclassification.ClientTests;
 import org.apache.hadoop.hbase.testclassification.MediumTests;
 import org.apache.hadoop.hbase.util.Bytes;
+import org.apache.hadoop.metrics2.lib.MutableFastCounter;
 import org.apache.log4j.Level;
 import org.apache.zookeeper.KeeperException;
 import org.junit.After;
@@ -575,10 +576,11 @@ public class TestReplicasClient {
 
       //reset
       ClusterConnection connection = (ClusterConnection) HTU.getConnection();
-      Counter hedgedReadOps = connection.getConnectionMetrics().hedgedReadOps;
-      Counter hedgedReadWin = connection.getConnectionMetrics().hedgedReadWin;
-      hedgedReadOps.dec(hedgedReadOps.getCount());
-      hedgedReadWin.dec(hedgedReadWin.getCount());
+	  MetricsClientSourceImpl metrics = (MetricsClientSourceImpl) connection.getConnectionMetrics().source;
+      MutableFastCounter hedgedReadOps = metrics.hedgedReadOps;
+      MutableFastCounter hedgedReadWin = metrics.hedgedReadWin;
+      hedgedReadOps.incr(-hedgedReadOps.value());
+      hedgedReadWin.incr(-hedgedReadWin.value());
 
       // Wait a little on the main region, just enough to happen once hedged read
       // and hedged read did not returned faster
@@ -590,8 +592,8 @@ public class TestReplicasClient {
       r = table.get(g);
       Assert.assertFalse(r.isStale());
       Assert.assertFalse(r.getColumnCells(f, b1).isEmpty());
-      Assert.assertEquals(hedgedReadOps.getCount(), 1);
-      Assert.assertEquals(hedgedReadWin.getCount(), 0);
+      Assert.assertEquals(hedgedReadOps.value(), 1);
+      Assert.assertEquals(hedgedReadWin.value(), 0);
       SlowMeCopro.sleepTime.set(0);
       SlowMeCopro.getSecondaryCdl().get().countDown();
       LOG.info("hedged read occurred but not faster");
@@ -604,8 +606,8 @@ public class TestReplicasClient {
       r = table.get(g);
       Assert.assertTrue(r.isStale());
       Assert.assertTrue(r.getColumnCells(f, b1).isEmpty());
-      Assert.assertEquals(hedgedReadOps.getCount(), 2);
-      Assert.assertEquals(hedgedReadWin.getCount(), 1);
+      Assert.assertEquals(hedgedReadOps.value(), 2);
+      Assert.assertEquals(hedgedReadWin.value(), 1);
       SlowMeCopro.getPrimaryCdl().get().countDown();
       LOG.info("hedged read occurred and faster");
 

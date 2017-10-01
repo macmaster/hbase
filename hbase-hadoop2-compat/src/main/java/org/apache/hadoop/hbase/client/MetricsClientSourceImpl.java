@@ -91,7 +91,7 @@ public class MetricsClientSourceImpl extends BaseSourceImpl implements MetricsCl
   @VisibleForTesting
   protected final Map<String, RegionStats> regionStats;
   @VisibleForTesting
-  protected final Function<String, RegionStats> newRegionStat = 
+  protected final Function<String, RegionStats> newRegionStat =
       path -> new RegionStats(registry, path, "region stats for " + path);
 
   @VisibleForTesting
